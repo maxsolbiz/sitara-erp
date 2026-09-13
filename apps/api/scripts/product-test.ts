@@ -1,4 +1,5 @@
-import { prisma, setup, teardown, api, apiFormData, pass, fail, hasFailures, tenantId } from './test-util';
+import { prisma, setup, teardown, api, apiFormData, pass, fail, hasFailures, tenantId, authToken } from './test-util';
+import { generateAccessToken, hashPassword } from '../src/utils/helpers';
 
 async function main() {
   await setup(); console.log('\n=== Product & Category Tests ===\n');
@@ -53,6 +54,39 @@ async function main() {
       if (r.body?.data?.imported > 0) pass('C5: Valid rows imported'); else fail('C5: Valid rows', `Imported ${r.body?.data?.imported}`);
     } else fail('C5', `Status ${r.status}`);
   } catch (e: any) { fail('C5', e.message); }
+
+  // D1-D4: costPrice visibility (products.export holders + superadmin only)
+  try {
+    const perm = await prisma.permission.upsert({
+      where: { tenantId_slug: { tenantId, slug: 'products.view' } },
+      update: {},
+      create: { tenantId, name: 'Products View', slug: 'products.view', module: 'products' },
+    });
+    let role = await prisma.role.findFirst({ where: { tenantId, slug: 'cost-test-viewer' } });
+    if (!role) {
+      role = await prisma.role.create({ data: { tenantId, name: 'Cost Test Viewer', slug: 'cost-test-viewer' } });
+      await prisma.rolePermission.create({ data: { roleId: role.id, permissionId: perm.id } });
+    }
+    let viewer = await prisma.user.findFirst({ where: { username: 'costviewer', tenantId } });
+    if (!viewer) {
+      viewer = await prisma.user.create({
+        data: { tenantId, username: 'costviewer', email: 'costviewer@test.com', passwordHash: await hashPassword('viewer123'), fullName: 'Cost Viewer', isActive: true, status: 'active' },
+      });
+    }
+    const existing = await prisma.roleUser.findUnique({ where: { userId_roleId: { userId: viewer.id, roleId: role.id } } });
+    if (!existing) await prisma.roleUser.create({ data: { userId: viewer.id, roleId: role.id } });
+    const viewerToken = generateAccessToken({ userId: viewer.id, tenantId, tenantSlug: 'test-tenant' });
+
+    const adminList = await api('GET', '/api/v1/products?perPage=5', undefined, authToken);
+    if (adminList.status === 200 && (adminList.body?.data || []).length > 0 && 'costPrice' in (adminList.body.data[0] || {})) pass('D1: Admin sees costPrice'); else fail('D1', `Status ${adminList.status}`);
+    const viewerList = await api('GET', '/api/v1/products?perPage=5', undefined, viewerToken);
+    if (viewerList.status === 200 && (viewerList.body?.data || []).every((p: any) => !('costPrice' in p))) pass('D2: Viewer hidden costPrice'); else fail('D2', `Status ${viewerList.status}`);
+    const pid = adminList.body?.data?.[0]?.id;
+    const adminDetail = await api('GET', `/api/v1/products/${pid}`, undefined, authToken);
+    if (adminDetail.status === 200 && 'costPrice' in (adminDetail.body?.data || {})) pass('D3: Admin detail costPrice'); else fail('D3', `Status ${adminDetail.status}`);
+    const viewerDetail = await api('GET', `/api/v1/products/${pid}`, undefined, viewerToken);
+    if (viewerDetail.status === 200 && !('costPrice' in (viewerDetail.body?.data || {}))) pass('D4: Viewer detail hidden'); else fail('D4', `Status ${viewerDetail.status}`);
+  } catch (e: any) { fail('D-cost', e.message); }
 
   // Cleanup
   await prisma.product.deleteMany({ where: { tenantId, sku: { in: ['IMP-001','IMP-002','IMP-003','IMP-004','CAT-TEST','E2E-PROD'] } } }).catch(() => {});

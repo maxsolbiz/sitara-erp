@@ -15,6 +15,29 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 *
 
 const router = Router();
 
+// Cost prices are sensitive purchasing data. Mirrors the frontend, which gates
+// the cost-containing CSV export behind 'products.export': only superadmins and
+// holders of 'products.export' receive costPrice fields from read endpoints.
+async function canViewCost(req: Request): Promise<boolean> {
+  try {
+    if (!req.user) return false;
+    const user = await prisma.user.findUnique({
+      where: { id: BigInt(req.user.userId) },
+      select: { isSuperAdmin: true },
+    });
+    if (user?.isSuperAdmin) return true;
+    const links = await prisma.roleUser.findMany({
+      where: { userId: BigInt(req.user.userId) },
+      include: { role: { include: { permissions: { include: { permission: { select: { slug: true } } } } } } },
+    });
+    return links.some((ru) =>
+      ru.role.permissions.some((rp) => rp.permission.slug === 'products.export')
+    );
+  } catch {
+    return false;
+  }
+}
+
 const productSchema = z.object({
   name: z.string().min(1).max(200),
   sku: z.string().min(1).max(50).optional(),
@@ -50,6 +73,9 @@ router.get('/', rbacMiddleware('products.view'), async (req: Request, res: Respo
       page: req.query.page ? Number(req.query.page) : 1,
       perPage: req.query.perPage ? Number(req.query.perPage) : 20,
     });
+    if (!(await canViewCost(req))) {
+      for (const item of result.items as any[]) delete item.costPrice;
+    }
     res.json({ data: result.items, meta: { total: result.total, page: result.page, perPage: result.perPage } });
   } catch (error: any) {
     logger.error('Product list failed', { error: error.message });
@@ -61,7 +87,11 @@ router.get('/search', rbacMiddleware('products.view'), async (req: Request, res:
   try {
     const q = (req.query.q as string) || '';
     const result = await productService.list({ search: q, perPage: 20 });
-    res.json({ data: result.items });
+    const items = result.items as any[];
+    if (!(await canViewCost(req))) {
+      for (const item of items) delete item.costPrice;
+    }
+    res.json({ data: items });
   } catch (error: any) {
     res.json({ data: [] });
   }
@@ -320,7 +350,8 @@ router.get('/:id/variants', rbacMiddleware('products.view'), async (req: Request
       where: { productId: BigInt(req.params.id), tenantId: ctx.tenantId },
       orderBy: { createdAt: 'desc' },
     });
-    res.json({ data: variants.map((v) => ({ id: v.id.toString(), productId: v.productId.toString(), sku: v.sku, name: v.name, barcode: v.barcode, costPrice: Number(v.costPrice), sellingPrice: Number(v.sellingPrice), isActive: v.isActive })) });
+    const showCost = await canViewCost(req);
+    res.json({ data: variants.map((v) => ({ id: v.id.toString(), productId: v.productId.toString(), sku: v.sku, name: v.name, barcode: v.barcode, ...(showCost ? { costPrice: Number(v.costPrice) } : {}), sellingPrice: Number(v.sellingPrice), isActive: v.isActive })) });
   } catch { res.json({ data: [] }); }
 });
 
@@ -432,6 +463,10 @@ router.get('/:id', rbacMiddleware('products.view'), async (req: Request, res: Re
     if (isNaN(id)) { res.status(404).json({ status: 404 }); return; }
     const product = await productService.getById(BigInt(id));
     if (!product) { res.status(404).json({ status: 404 }); return; }
+    if (!(await canViewCost(req))) {
+      delete (product as any).costPrice;
+      for (const v of ((product as any).variants || []) as any[]) delete v.costPrice;
+    }
     res.json({ data: product });
   } catch { res.status(500).json({ status: 500 }); }
 });
