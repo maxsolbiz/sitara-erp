@@ -155,18 +155,22 @@ async function main() {
   });
 
   // FIFO batches
-  const existingBatchA = await prisma.stockBatch.findFirst({ where: { tenantId, warehouseId: wh.id, productId: productA.id } });
-  if (!existingBatchA) {
-    await prisma.stockBatch.create({
-      data: { tenantId, warehouseId: wh.id, productId: productA.id, batchNumber: 'INIT-A', quantityReceived: 50, quantityRemaining: 50, unitCost: 600, receivedAt: now },
+  // FIFO batches — reset to full every run (otherwise quantityRemaining
+  // depletes across runs while warehouseStock is reset, causing drift)
+  for (const b of [
+    { productId: productA.id, batchNumber: 'INIT-A', qty: 50, cost: 600 },
+    { productId: productB.id, batchNumber: 'INIT-B', qty: 20, cost: 300 },
+  ]) {
+    const existing = await prisma.stockBatch.findFirst({
+      where: { tenantId, warehouseId: wh.id, productId: b.productId, batchNumber: b.batchNumber },
     });
-  }
-
-  const existingBatchB = await prisma.stockBatch.findFirst({ where: { tenantId, warehouseId: wh.id, productId: productB.id } });
-  if (!existingBatchB) {
-    await prisma.stockBatch.create({
-      data: { tenantId, warehouseId: wh.id, productId: productB.id, batchNumber: 'INIT-B', quantityReceived: 20, quantityRemaining: 20, unitCost: 300, receivedAt: now },
-    });
+    if (existing) {
+      await prisma.stockBatch.update({ where: { id: existing.id }, data: { quantityRemaining: b.qty } });
+    } else {
+      await prisma.stockBatch.create({
+        data: { tenantId, warehouseId: wh.id, productId: b.productId, batchNumber: b.batchNumber, quantityReceived: b.qty, quantityRemaining: b.qty, unitCost: b.cost, receivedAt: now },
+      });
+    }
   }
 
   console.log('  Products + stock created/verified');
