@@ -4,7 +4,7 @@ import prisma from '../lib/prisma';
 import { getTenantContext } from '../lib/prisma';
 import { rbacMiddleware } from '../middleware/rbac';
 import { validateMiddleware } from '../middleware/validate';
-import { generateSaleNumber, formatPkr, verifyPassword } from '../utils/helpers';
+import { generateSaleNumber, formatPkr, verifyPassword, parseIdParam } from '../utils/helpers';
 import { getDefaultWarehouse } from '../utils/warehouse';
 import { printerService } from '../services/printer.service';
 import { ACCOUNT_CODES } from '../constants/accounts';
@@ -13,6 +13,18 @@ import { createNotification } from './notification.routes';
 import logger from '../utils/logger';
 
 const router = Router();
+
+// Reject malformed numeric IDs with 400 instead of 500/P2025 downstream
+// (BigInt('') silently coerces to 0n; BigInt('abc') throws).
+for (const name of ['id', 'saleId', 'returnId']) {
+  router.param(name, (req, res, next, val) => {
+    if (parseIdParam(val) === null) {
+      res.status(400).json({ status: 400, title: 'Bad Request', detail: 'Invalid id parameter' });
+      return;
+    }
+    next();
+  });
+}
 
 const checkoutSchema = z.object({
   items: z.array(z.object({
