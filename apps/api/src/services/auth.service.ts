@@ -92,6 +92,7 @@ export class AuthService {
       'pricing-tiers': ['pricing-tiers.view', 'pricing-tiers.create', 'pricing-tiers.update', 'pricing-tiers.delete'],
       'expenses': ['expenses.view', 'expenses.create', 'expenses.update', 'expenses.delete', 'expenses.approve', 'expenses.pay', 'expenses.categories.manage'],
       'loans': ['loans.view', 'loans.manage'],
+      'notifications': ['notifications.view'],
     };
 
     const allPermSlugs: string[] = [];
@@ -110,9 +111,9 @@ export class AuthService {
 
     const roleDefs = [
       { name: 'Admin', slug: 'admin', description: 'Full system access with all permissions', permissions: allPermSlugs },
-      { name: 'Manager', slug: 'manager', description: 'Can manage inventory, purchases, customers, and view reports', permissions: [...DEFAULT_PERMISSIONS.products, ...DEFAULT_PERMISSIONS.sales, ...DEFAULT_PERMISSIONS.customers, ...DEFAULT_PERMISSIONS.vendors, ...DEFAULT_PERMISSIONS.purchases, ...DEFAULT_PERMISSIONS.inventory, ...DEFAULT_PERMISSIONS.reports, ...DEFAULT_PERMISSIONS.loans, ...DEFAULT_PERMISSIONS.settings, 'expenses.approve', 'expenses.pay'] },
-      { name: 'Cashier', slug: 'cashier', description: 'Can operate POS and view sales', permissions: [...DEFAULT_PERMISSIONS.pos, 'sales.view', 'customers.view', 'customers.create'] },
-      { name: 'Accountant', slug: 'accountant', description: 'Can manage accounting, expenses, and financial reports', permissions: [...DEFAULT_PERMISSIONS.accounting, ...DEFAULT_PERMISSIONS.reports, ...DEFAULT_PERMISSIONS.loans, 'expenses.view', 'expenses.create', 'expenses.approve', 'expenses.pay', 'customers.view', 'customers.payments', 'vendors.view', 'vendors.payments'] },
+      { name: 'Manager', slug: 'manager', description: 'Can manage inventory, purchases, customers, and view reports', permissions: [...DEFAULT_PERMISSIONS.products, ...DEFAULT_PERMISSIONS.sales, ...DEFAULT_PERMISSIONS.customers, ...DEFAULT_PERMISSIONS.vendors, ...DEFAULT_PERMISSIONS.purchases, ...DEFAULT_PERMISSIONS.inventory, ...DEFAULT_PERMISSIONS.reports, ...DEFAULT_PERMISSIONS.loans, ...DEFAULT_PERMISSIONS.settings, ...DEFAULT_PERMISSIONS.notifications, 'expenses.approve', 'expenses.pay'] },
+      { name: 'Cashier', slug: 'cashier', description: 'Can operate POS and view sales', permissions: [...DEFAULT_PERMISSIONS.pos, ...DEFAULT_PERMISSIONS.notifications, 'sales.view', 'customers.view', 'customers.create'] },
+      { name: 'Accountant', slug: 'accountant', description: 'Can manage accounting, expenses, and financial reports', permissions: [...DEFAULT_PERMISSIONS.accounting, ...DEFAULT_PERMISSIONS.reports, ...DEFAULT_PERMISSIONS.loans, ...DEFAULT_PERMISSIONS.notifications, 'expenses.view', 'expenses.create', 'expenses.approve', 'expenses.pay', 'customers.view', 'customers.payments', 'vendors.view', 'vendors.payments'] },
     ];
 
     for (const rd of roleDefs) {

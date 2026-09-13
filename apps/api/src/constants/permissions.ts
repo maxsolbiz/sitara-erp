@@ -27,6 +27,7 @@ export const ALL_PERMISSIONS = [
   'expenses.view', 'expenses.create', 'expenses.update', 'expenses.delete',
   'expenses.approve', 'expenses.pay', 'expenses.categories.manage',
   'loans.view', 'loans.manage',
+  'notifications.view',
 ];
 
 export const ALL_PERMISSIONS_SET = new Set(ALL_PERMISSIONS);
