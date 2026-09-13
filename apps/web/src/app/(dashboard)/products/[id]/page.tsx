@@ -142,7 +142,9 @@ export default function ProductDetailPage() {
 
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <StatCard title="Selling Price" value={formatPkr(product.sellingPrice)} icon={DollarSign} variant="primary" />
-      <StatCard title="Cost Price" value={formatPkr(product.costPrice)} icon={Tag} variant="info" />
+      {product.costPrice !== null && product.costPrice !== undefined && (
+        <StatCard title="Cost Price" value={formatPkr(product.costPrice)} icon={Tag} variant="info" />
+      )}
       <StatCard title="Stock" value={totalStock} icon={Warehouse} variant={totalStock <= product.reorderLevel ? 'warning' : 'success'} />
       <StatCard title="Status" value={product.isActive ? 'Active' : 'Inactive'} icon={Package} variant={product.isActive ? 'success' : 'danger'} />
     </div>

@@ -9,8 +9,9 @@ export function formatCurrency(amount: number, symbol = 'Rs.', decimals = 0): st
   return `${symbol} ${amount.toLocaleString('en-PK', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}`;
 }
 
-export function formatPkr(amount: number): string {
-  return formatCurrency(amount);
+export function formatPkr(amount: number | null | undefined): string {
+  if (amount === null || amount === undefined || Number.isNaN(Number(amount))) return '—';
+  return formatCurrency(Number(amount));
 }
 
 export function formatDate(date: string | Date): string {
