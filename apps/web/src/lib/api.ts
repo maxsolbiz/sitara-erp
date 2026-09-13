@@ -63,7 +63,7 @@ async function refreshAccessToken(): Promise<boolean> {
 export async function api<T = any>(
   endpoint: string,
   options: ApiOptions = {}
-): Promise<{ data: T; error?: never } | { data?: never; error: { status: number; detail: string; errors?: any[] } }> {
+): Promise<{ data: T; ok: true; error?: never } | { data?: never; ok: false; error: { status: number; detail: string; errors?: any[] } }> {
   const { params, ...fetchOptions } = options;
 
   let url = `${API_BASE}${endpoint}`;
@@ -90,16 +90,35 @@ export async function api<T = any>(
       const newToken = getAccessToken();
       headers['Authorization'] = `Bearer ${newToken}`;
       const retryRes = await fetch(url, { ...fetchOptions, headers });
-      return retryRes.json();
+      return normalize(await retryRes.json().catch(() => ({})), retryRes.status);
     }
 
     if (typeof window !== 'undefined') {
       window.location.href = '/login';
     }
-    return { error: { status: 401, detail: 'Session expired' } };
+    return { ok: false, error: { status: 401, detail: 'Session expired' } };
   }
 
-  return res.json();
+  return normalize(await res.json().catch(() => ({})), res.status);
+}
+
+/**
+ * Normalize backend responses so callers have a reliable failure signal.
+ * Most API routes use the `{status, title, detail}` envelope (no `error`
+ * key), which left every `if (res.error)` check in the app dead code —
+ * server failures rendered as success. This synthesizes `error` + `ok`
+ * additively: success bodies gain only `ok: true`; failure bodies gain
+ * `ok: false` and `error` (existing `error` envelopes pass through).
+ */
+function normalize(body: any, status: number): any {
+  const ok = status >= 200 && status < 300;
+  if (body && typeof body === 'object' && !Array.isArray(body)) {
+    if (!ok && !('error' in body)) {
+      return { ...body, ok: false, error: { status, detail: body.detail || body.title || `Request failed (${status})` } };
+    }
+    return { ...body, ok };
+  }
+  return ok ? { ok: true as const, data: body } : { ok: false as const, error: { status, detail: `Request failed (${status})` } };
 }
 
 export function setAuth(accessToken: string, refreshToken: string) {

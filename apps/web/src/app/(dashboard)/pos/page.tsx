@@ -181,7 +181,7 @@ export default function PosPage() {
         items: cart.map((i) => ({ productId: i.productId, quantity: i.quantity, unitPrice: i.unitPrice, lineTotal: i.lineTotal })),
         customerId: customer?.id || null,
       }) as any;
-      if (res.error) { toast.error(res.error.detail); return; }
+      if (res.error || !res.ok) { toast.error(res.error?.detail || res.detail || 'Request failed'); return; }
       toast.success('Sale held');
       newSale();
       const held = await apiGet('/pos/held-sales').catch(() => null);
@@ -192,7 +192,7 @@ export default function PosPage() {
   const resumeSale = async (saleId: string) => {
     try {
       const res = await apiPost(`/pos/resume/${saleId}`, {}) as any;
-      if (res.error) { toast.error(res.error.detail); return; }
+      if (res.error || !res.ok) { toast.error(res.error?.detail || res.detail || 'Request failed'); return; }
       if (res.data?.sale) {
         setCart(res.data.sale.items.map((i: any) => ({
           productId: Number(i.productId), name: i.productName || `Item`, sku: '',
@@ -211,7 +211,13 @@ export default function PosPage() {
     if (product.stock === 0) { toast.error('Out of stock'); return; }
     setCart((prev) => {
       const existing = prev.find((i) => i.productId === product.id);
-      if (existing) return prev.map((i) => i.productId === product.id ? { ...i, quantity: i.quantity + 1, lineTotal: (i.quantity + 1) * i.unitPrice } : i);
+      if (existing) {
+        if (existing.stock > 0 && existing.stock < 999 && existing.quantity + 1 > existing.stock) {
+          toast.error(`Only ${existing.stock} in stock`);
+          return prev;
+        }
+        return prev.map((i) => i.productId === product.id ? { ...i, quantity: i.quantity + 1, lineTotal: (i.quantity + 1) * i.unitPrice } : i);
+      }
       return [...prev, { productId: product.id, name: product.name, sku: product.sku || '', quantity: 1, unitPrice: Number(product.sellingPrice || 0), lineTotal: Number(product.sellingPrice || 0), stock: product.stock || 0 }];
     });
     if (typeof window !== 'undefined' && window.innerWidth < 1024) setMobileTab('cart');
@@ -221,6 +227,12 @@ export default function PosPage() {
     setCart((prev) => prev.map((i) => {
       if (i.productId !== productId) return i;
       const newQty = Math.max(1, i.quantity + delta);
+      // Defense in depth: never let the UI construct an overstock request
+      // (backend still validates too). Stock 999 is the held/return sentinel.
+      if (delta > 0 && i.stock > 0 && i.stock < 999 && newQty > i.stock) {
+        toast.error(`Only ${i.stock} in stock`);
+        return i;
+      }
       return { ...i, quantity: newQty, lineTotal: newQty * i.unitPrice };
     }));
   };
@@ -274,7 +286,11 @@ export default function PosPage() {
     }
     try {
       const res = await apiPost('/pos/checkout', checkoutBody) as any;
-      if (res.error) { toast.error(res.error.detail); setSaving(false); return; }
+      if (!res.ok || res.error) {
+        toast.error(res.error?.detail || res.detail || 'Checkout failed');
+        setSaving(false);
+        return;
+      }
       setLastSale(res.data);
       setShowCheckout(false);
       setShowSuccess(true);
@@ -360,7 +376,7 @@ export default function PosPage() {
         refundMethod,
         notes: returnNotes,
       }) as any;
-      if (res.error) { toast.error(res.error.detail); setSaving(false); return; }
+      if (res.error || !res.ok) { toast.error(res.error?.detail || res.detail || 'Request failed'); setSaving(false); return; }
       toast.success(`Return ${res.data.returnNumber} submitted`);
       setShowReturn(false);
       setReturnItems([]);
@@ -372,7 +388,7 @@ export default function PosPage() {
     if (!overrideForm.username || !overrideForm.password) { toast.error('Enter username and password'); return; }
     try {
       const res = await apiPost('/pos/validate-manager', overrideForm) as any;
-      if (res.error) { toast.error(res.error.detail); return; }
+      if (res.error || !res.ok) { toast.error(res.error?.detail || res.detail || 'Request failed'); return; }
       setOverrideApproved(res.data);
       setShowOverride(false);
       toast.success(`Override approved by ${res.data.fullName}`);
