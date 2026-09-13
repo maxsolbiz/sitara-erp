@@ -2,10 +2,20 @@ import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { getTenantContext } from '../lib/prisma';
 import { rbacMiddleware } from '../middleware/rbac';
-import { hashPassword } from '../utils/helpers';
+import { hashPassword, parseIdParam } from '../utils/helpers';
 import logger from '../utils/logger';
 
 const router = Router();
+
+// Reject malformed numeric IDs with 400 instead of 500/P2025 downstream
+// (BigInt('') silently coerces to 0n; BigInt('abc') throws).
+router.param('id', (req, res, next, val) => {
+  if (parseIdParam(val) === null) {
+    res.status(400).json({ status: 400, title: 'Bad Request', detail: 'Invalid id parameter' });
+    return;
+  }
+  next();
+});
 
 // GET /users — list all users with roles
 router.get('/', rbacMiddleware('users.view'), async (req: Request, res: Response) => {

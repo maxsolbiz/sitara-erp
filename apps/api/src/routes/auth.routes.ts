@@ -6,10 +6,20 @@ import { authService } from '../services/auth.service';
 import { authMiddleware } from '../middleware/auth';
 import { validateMiddleware } from '../middleware/validate';
 import { authRateLimitMiddleware } from '../middleware/rateLimit';
-import { hashPassword, verifyPassword } from '../utils/helpers';
+import { hashPassword, verifyPassword, parseIdParam } from '../utils/helpers';
 import logger from '../utils/logger';
 
 const router = Router();
+
+// Reject malformed numeric IDs with 400 instead of 500/P2025 downstream
+// (BigInt('') silently coerces to 0n; BigInt('abc') throws).
+router.param('id', (req, res, next, val) => {
+  if (parseIdParam(val) === null) {
+    res.status(400).json({ status: 400, title: 'Bad Request', detail: 'Invalid id parameter' });
+    return;
+  }
+  next();
+});
 
 const registerSchema = z.object({
   tenantName: z.string().min(2).max(200),

@@ -2,9 +2,20 @@ import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { getTenantContext } from '../lib/prisma';
 import { rbacMiddleware } from '../middleware/rbac';
+import { parseIdParam } from '../utils/helpers';
 import logger from '../utils/logger';
 
 const router = Router();
+
+// Reject malformed numeric IDs with 400 instead of 500/P2025 downstream
+// (BigInt('') silently coerces to 0n; BigInt('abc') throws).
+router.param('id', (req, res, next, val) => {
+  if (parseIdParam(val) === null) {
+    res.status(400).json({ status: 400, title: 'Bad Request', detail: 'Invalid id parameter' });
+    return;
+  }
+  next();
+});
 
 export async function createNotification(params: { tenantId: bigint; userId: bigint; title: string; message: string; type: string; link?: string }) {
   await prisma.notification.create({ data: { tenantId: params.tenantId, userId: params.userId, title: params.title, message: params.message, type: params.type, data: params.link ? { link: params.link } : undefined } });

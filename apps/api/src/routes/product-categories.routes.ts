@@ -2,9 +2,20 @@ import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { getTenantContext } from '../lib/prisma';
 import { rbacMiddleware } from '../middleware/rbac';
+import { parseIdParam } from '../utils/helpers';
 import logger from '../utils/logger';
 
 const router = Router();
+
+// Reject malformed numeric IDs with 400 instead of 500/P2025 downstream
+// (BigInt('') silently coerces to 0n; BigInt('abc') throws).
+router.param('id', (req, res, next, val) => {
+  if (parseIdParam(val) === null) {
+    res.status(400).json({ status: 400, title: 'Bad Request', detail: 'Invalid id parameter' });
+    return;
+  }
+  next();
+});
 
 function mapCategory(c: any, productCount?: number) {
   return { id: c.id.toString(), name: c.name, slug: c.slug, description: c.description, parentId: c.parentId?.toString() || null, sortOrder: c.sortOrder, isActive: c.isActive, productCount: productCount ?? 0, createdAt: c.createdAt, updatedAt: c.updatedAt };
