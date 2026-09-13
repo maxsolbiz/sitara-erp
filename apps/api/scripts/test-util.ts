@@ -75,11 +75,12 @@ export async function setup() {
 
 export async function teardown() { _server?.close(); }
 
-export async function api(method: string, path: string, body?: any, token?: string): Promise<{ status: number; body: any }> {
+export async function api(method: string, path: string, body?: any, token?: string | null): Promise<{ status: number; body: any }> {
   return new Promise((resolve, reject) => {
     const url = new URL(path, _baseUrl);
     const opts: http.RequestOptions = { hostname: url.hostname, port: url.port, path: url.pathname + url.search, method, headers: { 'Content-Type': 'application/json' } };
-    const t = token || authToken;
+    // Explicit null = anonymous (no auth header), for public endpoints.
+    const t = token === null ? '' : (token || authToken);
     if (t) opts.headers!['Authorization'] = `Bearer ${t}`;
     const req = http.request(opts, (res) => { let d = ''; res.on('data', (c) => d += c); res.on('end', () => { try { resolve({ status: res.statusCode || 0, body: JSON.parse(d) }); } catch { resolve({ status: res.statusCode || 0, body: {} }); } }); });
     req.on('error', reject);
