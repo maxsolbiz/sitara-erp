@@ -1,5 +1,9 @@
 import dotenv from 'dotenv';
-dotenv.config({ path: '../../.env' });
+import path from 'path';
+// cwd-independent: repo-root .env resolved from this file's location first,
+// then a cwd-local .env fills any gaps (dotenv never overrides existing vars).
+dotenv.config({ path: path.join(__dirname, '..', '..', '..', '.env') });
+dotenv.config();
 
 export const config = {
   port: parseInt(process.env.PORT || '3000', 10),
