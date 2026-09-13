@@ -7,13 +7,25 @@ import { getTenantContext } from '../lib/prisma';
 import { productService } from '../services/product.service';
 import { validateMiddleware } from '../middleware/validate';
 import { rbacMiddleware } from '../middleware/rbac';
-import { generateSku } from '../utils/helpers';
+import { generateSku, parseIdParam } from '../utils/helpers';
 import logger from '../utils/logger';
 import PDFDocument from 'pdfkit';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 const router = Router();
+
+// Reject malformed numeric IDs with 400 instead of 500/P2025 downstream
+// (BigInt('') silently coerces to 0n; BigInt('abc') throws).
+for (const name of ['id', 'variantId', 'imageId']) {
+  router.param(name, (req, res, next, val) => {
+    if (parseIdParam(val) === null) {
+      res.status(400).json({ status: 400, title: 'Bad Request', detail: 'Invalid id parameter' });
+      return;
+    }
+    next();
+  });
+}
 
 // Cost prices are sensitive purchasing data. Mirrors the frontend, which gates
 // the cost-containing CSV export behind 'products.export': only superadmins and

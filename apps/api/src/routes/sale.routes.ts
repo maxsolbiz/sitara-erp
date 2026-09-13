@@ -9,8 +9,19 @@ import { settingService } from '../services/setting.service';
 import logger from '../utils/logger';
 import { getDefaultWarehouse } from '../utils/warehouse';
 import { ACCOUNT_CODES } from '../constants/accounts';
+import { parseIdParam } from '../utils/helpers';
 
 const router = Router();
+
+// Reject malformed numeric IDs with 400 instead of 500/P2025 downstream
+// (BigInt('') silently coerces to 0n; BigInt('abc') throws).
+router.param('id', (req, res, next, val) => {
+  if (parseIdParam(val) === null) {
+    res.status(400).json({ status: 400, title: 'Bad Request', detail: 'Invalid id parameter' });
+    return;
+  }
+  next();
+});
 
 router.get('/stats', rbacMiddleware('sales.view'), async (req: Request, res: Response) => {
   try {

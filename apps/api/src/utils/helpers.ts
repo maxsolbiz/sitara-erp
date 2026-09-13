@@ -65,3 +65,20 @@ export function formatPkr(amount: number | string): string {
   const num = typeof amount === 'string' ? parseFloat(amount) : amount;
   return `Rs. ${num.toLocaleString('en-PK', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
+
+/**
+ * Parse a route :id param into a bigint.
+ * Returns null for empty, non-numeric, or non-positive values instead of
+ * throwing (BigInt('abc')) or silently coercing (BigInt('') === 0n).
+ * Callers should return 400 when this returns null.
+ */
+export function parseIdParam(raw: unknown): bigint | null {
+  if (typeof raw !== 'string') return null;
+  const s = raw.trim();
+  if (!/^[1-9][0-9]*$/.test(s)) return null;
+  try {
+    return BigInt(s);
+  } catch {
+    return null;
+  }
+}

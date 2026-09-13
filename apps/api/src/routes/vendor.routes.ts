@@ -4,9 +4,20 @@ import { getTenantContext } from '../lib/prisma';
 import { vendorService } from '../services/vendor.service';
 import { rbacMiddleware } from '../middleware/rbac';
 import { ACCOUNT_CODES } from '../constants/accounts';
+import { parseIdParam } from '../utils/helpers';
 import logger from '../utils/logger';
 
 const router = Router();
+
+// Reject malformed numeric IDs with 400 instead of 500/P2025 downstream
+// (BigInt('') silently coerces to 0n; BigInt('abc') throws).
+router.param('id', (req, res, next, val) => {
+  if (parseIdParam(val) === null) {
+    res.status(400).json({ status: 400, title: 'Bad Request', detail: 'Invalid id parameter' });
+    return;
+  }
+  next();
+});
 
 router.get('/stats', rbacMiddleware('vendors.view'), async (_req: Request, res: Response) => {
   try { const s = await vendorService.getStats(); res.json({ data: s }); }
