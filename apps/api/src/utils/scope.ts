@@ -30,11 +30,16 @@ export async function getUserScope(
 
   const roleSlugs = assignments.map((r) => r.role.slug);
 
-  // Admin, Manager, Accountant see all records
-  const scope: 'own' | 'all' =
-    roleSlugs.some((s) => ['admin', 'manager', 'accountant'].includes(s))
-      ? 'all'
-      : 'own';
+  // Superadmins bypass role checks everywhere else (cf. rbacMiddleware), so
+  // they see all records even with no explicit role assignment.
+  let scope: 'own' | 'all';
+  if (roleSlugs.some((s) => ['admin', 'manager', 'accountant'].includes(s))) {
+    scope = 'all';
+  } else {
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { isSuperAdmin: true } });
+    // Admin, Manager, Accountant see all records
+    scope = user?.isSuperAdmin ? 'all' : 'own';
+  }
 
   requestCache.set(cacheKey, { expiry: Date.now() + ttlMs, scope });
   return scope;

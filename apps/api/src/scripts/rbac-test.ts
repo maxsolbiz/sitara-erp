@@ -35,8 +35,14 @@ async function main() {
     adminUser = await prisma.user.create({
       data: { tenantId, username: 'rbac-admin', email: 'rbac-admin@test.com', passwordHash: adminPw, fullName: 'RBAC Admin', isSuperAdmin: true, status: 'active' },
     });
+  }
+  // Idempotent role link (missing on reruns breaks scope checks that need the admin role)
+  {
     const adminRole = await prisma.role.findFirst({ where: { tenantId, slug: 'admin' } });
-    if (adminRole) await prisma.roleUser.create({ data: { userId: adminUser.id, roleId: adminRole.id } });
+    if (adminRole) {
+      const link = await prisma.roleUser.findUnique({ where: { userId_roleId: { userId: adminUser.id, roleId: adminRole.id } } });
+      if (!link) await prisma.roleUser.create({ data: { userId: adminUser.id, roleId: adminRole.id } });
+    }
   }
 
   let cashierUser = await prisma.user.findFirst({ where: { tenantId, username: 'rbac-cashier' } });
@@ -44,8 +50,13 @@ async function main() {
     cashierUser = await prisma.user.create({
       data: { tenantId, username: 'rbac-cashier', email: 'rbac-cashier@test.com', passwordHash: cashierPw, fullName: 'RBAC Cashier', status: 'active' },
     });
+  }
+  {
     const cashierRole = await prisma.role.findFirst({ where: { tenantId, slug: 'cashier' } });
-    if (cashierRole) await prisma.roleUser.create({ data: { userId: cashierUser.id, roleId: cashierRole.id } });
+    if (cashierRole) {
+      const link = await prisma.roleUser.findUnique({ where: { userId_roleId: { userId: cashierUser.id, roleId: cashierRole.id } } });
+      if (!link) await prisma.roleUser.create({ data: { userId: cashierUser.id, roleId: cashierRole.id } });
+    }
   }
 
   const adminToken = await login('rbac-admin@test.com', 'admin123');
@@ -107,12 +118,16 @@ async function main() {
     payments: [{ method: 'CASH', amount: 500 }],
   });
   if (cashierSale.status === 201) {
-    // Cashier lists sales — should see at least their own sale
+    // Cashier lists sales — should see at least their own sale.
+    // NOTE: apiFetch returns {status, data: <full body>}, and GET /sales
+    // responds {data: [...], meta} — unwrap one more level (matches frontend).
     const cashierSales: any = await apiFetch('/sales?perPage=50', cashierToken);
-    const cashierIds = cashierSales.data?.map((s: any) => s.id) || [];
+    const cashierArr = Array.isArray(cashierSales.data?.data) ? cashierSales.data.data : [];
+    const cashierIds = cashierArr.map((s: any) => s.id);
     // Admin lists all sales
     const adminSales: any = await apiFetch('/sales?perPage=50', adminToken);
-    const adminIds = adminSales.data?.map((s: any) => s.id) || [];
+    const adminArr = Array.isArray(adminSales.data?.data) ? adminSales.data.data : [];
+    const adminIds = adminArr.map((s: any) => s.id);
     const cashierOwn = cashierIds.length;
     const adminAll = adminIds.length;
     // Cashier should see FEWER sales than admin (scoping)
@@ -124,10 +139,10 @@ async function main() {
     failed++;
   }
 
-  // Cashier accesses /sales/returns (should work but be scoped)
+  // Cashier role has no sales.returns.view (route requires it) — 403 is correct.
   const cashierReturns = await apiFetch('/sales-returns', cashierToken);
-  results.push({ name: 'DataScope: Cashier GET /sales-returns (should pass)', pass: cashierReturns.status === 200, detail: `${cashierReturns.status}` });
-  if (cashierReturns.status === 200) passed++; else failed++;
+  results.push({ name: 'DataScope: Cashier GET /sales-returns (should 403)', pass: cashierReturns.status === 403, detail: `${cashierReturns.status}` });
+  if (cashierReturns.status === 403) passed++; else failed++;
 
   // Results
   console.log(`\n=== RBAC TEST RESULTS ===`);
