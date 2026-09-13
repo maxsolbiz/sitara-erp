@@ -89,7 +89,7 @@ async function main() {
   } catch (e: any) { fail('D-cost', e.message); }
 
   // Cleanup
-  await prisma.product.deleteMany({ where: { tenantId, sku: { in: ['IMP-001','IMP-002','IMP-003','IMP-004','CAT-TEST','E2E-PROD'] } } }).catch(() => {});
+  await prisma.product.deleteMany({ where: { tenantId, sku: { in: ['IMP-001','IMP-002','IMP-003','IMP-004','IMP-005','CAT-TEST','E2E-PROD'] } } }).catch(() => {});
   await prisma.productCategory.deleteMany({ where: { tenantId, name: { in: ['TestCat','TestCatRenamed','SubCat'] } } }).catch(() => {});
 
   await teardown(); await prisma.$disconnect();
