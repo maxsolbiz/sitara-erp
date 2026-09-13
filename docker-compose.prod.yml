@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  postgres:
+    restart: always
+    environment:
+      POSTGRES_DB: sitara_saas
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS}
+    volumes:
+      - ./docker/data/postgres:/var/lib/postgresql/data
+
+  redis:
+    restart: always
+
+  api:
+    build:
+      target: production
+    restart: always
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASS}@postgres:5432/sitara_saas?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      S3_REGION: ${S3_REGION}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      MAIL_FROM: ${MAIL_FROM}
+      SENTRY_DSN: ${SENTRY_DSN}
+      LOG_LEVEL: info
+    command: node dist/index.js
+
+  web:
+    build:
+      target: production
+    restart: always
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: https://api.sitara.pk/api/v1
+    command: node server.js
+
+  worker:
+    build:
+      target: production
+    restart: always
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASS}@postgres:5432/sitara_saas?schema=public
+      REDIS_URL: redis://redis:6379
+    command: node dist/worker.js
+
+  nginx:
+    image: nginx:alpine
+    container_name: sitara-nginx
+    restart: always
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - api
+      - web

@@ -1,0 +1,98 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sitara-db
+    restart: unless-stopped
+    ports:
+      - '5435:5432'
+    environment:
+      POSTGRES_DB: sitara_saas
+      POSTGRES_USER: sitara
+      POSTGRES_PASSWORD: sitara_pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U sitara -d sitara_saas']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: sitara-redis
+    restart: unless-stopped
+    ports:
+      - '6380:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+      target: development
+    container_name: sitara-api
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://sitara:sitara_pass@postgres:5432/sitara_saas?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: dev-jwt-secret-not-for-production
+      JWT_REFRESH_SECRET: dev-jwt-refresh-secret-not-for-production
+    volumes:
+      - ./apps/api/src:/app/apps/api/src
+      - ./apps/api/prisma:/app/apps/api/prisma
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: npx tsx watch src/index.ts
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+      target: development
+    container_name: sitara-web
+    restart: unless-stopped
+    ports:
+      - '3001:3000'
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_URL: http://localhost:3000/api/v1
+    volumes:
+      - ./apps/web/src:/app/apps/web/src
+    depends_on:
+      - api
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+      target: development
+    container_name: sitara-worker
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://sitara:sitara_pass@postgres:5432/sitara_saas?schema=public
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - ./apps/api/src:/app/apps/api/src
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: npx tsx watch src/worker.ts
+
+volumes:
+  postgres_data:
+  redis_data:

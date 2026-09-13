@@ -1,0 +1,17 @@
+{
+  "name": "Sitara ERP",
+  "short_name": "Sitara",
+  "description": "Sitara ERP — Business Management System",
+  "start_url": "/pos",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "orientation": "any",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Point of Sale", "url": "/pos", "description": "Open POS" },
+    { "name": "Customers", "url": "/customers", "description": "View customers" }
+  ]
+}

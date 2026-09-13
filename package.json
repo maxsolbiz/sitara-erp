@@ -1,0 +1,26 @@
+{
+  "name": "sitara-saas",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sitara ERP - Multi-tenant SaaS ERP for Pakistani SMBs",
+  "workspaces": [
+    "apps/api",
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "db:generate": "npm run db:generate -w apps/api",
+    "db:migrate": "npm run db:migrate -w apps/api",
+    "db:seed": "npm run db:seed -w apps/api",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:build": "docker compose build",
+    "setup": "npm install && npm run db:generate && npm run db:migrate && npm run db:seed"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
