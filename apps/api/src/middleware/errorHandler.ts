@@ -1,6 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
 import logger from '../utils/logger';
-import { setTenantContext } from '../lib/prisma';
 
 export function errorHandler(err: Error, req: Request, res: Response, _next: NextFunction): void {
   const requestId = req.headers['x-request-id'] || 'unknown';

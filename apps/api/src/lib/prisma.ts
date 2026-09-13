@@ -1,18 +1,34 @@
 import { PrismaClient } from '@prisma/client';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 interface TenantContext {
   tenantId: bigint;
   tenantSlug: string;
 }
 
-let currentTenant: TenantContext | null = null;
+// Per-request tenant context. Previously a plain module-global that leaked
+// across concurrent requests (cross-tenant contamination); now scoped via
+// AsyncLocalStorage so each request sees only its own context.
+const tenantStorage = new AsyncLocalStorage<TenantContext | null>();
 
 export function setTenantContext(context: TenantContext | null) {
-  currentTenant = context;
+  // Inside a request scope (runWithTenantContext) this sets the context for
+  // that request only. Outside any scope (scripts, tests, seed) it sets the
+  // root store, preserving the old behavior for non-server callers.
+  tenantStorage.enterWith(context);
 }
 
 export function getTenantContext(): TenantContext | null {
-  return currentTenant;
+  return tenantStorage.getStore() ?? null;
+}
+
+/**
+ * Run `callback` inside a fresh per-request tenant scope. Mount as early as
+ * possible in the middleware chain so every downstream reader (services,
+ * Prisma extension) is isolated from other concurrent requests.
+ */
+export function runWithTenantContext<T>(context: TenantContext | null, callback: () => T): T {
+  return tenantStorage.run(context, callback);
 }
 
 const prisma = new PrismaClient({
