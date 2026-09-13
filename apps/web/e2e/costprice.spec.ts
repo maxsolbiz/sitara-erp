@@ -8,8 +8,9 @@ test.describe('costPrice contract', () => {
     await login(page, 'admin@demo.com', 'admin123');
     await page.goto('/products');
     // Attach response listener BEFORE navigation so the detail API call can't slip past it.
+    // Match ONLY the detail call (/products/<id>), not list (/products?...) or variants (/:id/variants).
     const apiResPromise = page.waitForResponse(
-      (r) => r.url().includes('/api/v1/products/') && r.request().method() === 'GET',
+      (r) => /\/api\/v1\/products\/\d+(\?.*)?$/.test(r.url()) && r.request().method() === 'GET',
       { timeout: 15000 }
     ).catch(() => null);
     await page.getByRole('link', { name: 'View' }).first().click();
