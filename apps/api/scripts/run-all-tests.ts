@@ -1,4 +1,4 @@
-import { execFileSync } from 'child_process';
+import { execFileSync, spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 
 /**
@@ -24,6 +24,10 @@ const SUITES = [
   'product-test',
   'pos-test',
   'public-test',
+  // Needs a live API server (hits localhost:3000 concurrently); the
+  // orchestrator starts/stops it automatically — see runWithLiveServer.
+  // Depends on seeded users (admin@demo.com, manager@test.com).
+  'tenant-isolation-test',
 ];
 
 function run(file: string): { pass: number; fail: number; crashed: boolean } {
@@ -47,14 +51,39 @@ function setup() {
   console.log('(reseeded test data)');
 }
 
-function main() {
+async function waitForPort(url: string, tries = 40): Promise<boolean> {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await fetch(url);
+      if (r.ok || r.status < 500) return true;
+    } catch { /* not up yet */ }
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  return false;
+}
+
+/** Start a live API server, run `fn`, then always stop the server. */
+async function runWithLiveServer<T>(fn: () => T): Promise<T> {
+  const proc: ChildProcess = spawn(
+    process.execPath,
+    [TSX_CLI, '--env-file=.env', 'apps/api/src/index.ts'],
+    { cwd: ROOT, stdio: 'ignore', detached: false }
+  );
+  try {
+    const up = await waitForPort('http://localhost:3000/api/v1/health');
+    if (!up) throw new Error('live API server did not start');
+    return await fn();
+  } finally {
+    proc.kill();
+  }
+}
+
+async function main() {
   console.log('=== Full Suite ===\n');
   const rows: { file: string; pass: number; fail: number; note: string }[] = [];
   let failed = false;
 
-  for (const s of SUITES) {
-    // pos-test asserts absolute stock levels — always start it from a fresh seed.
-    if (s === 'auth-test' || s === 'pos-test') setup();
+  const runOne = (s: string) => {
     try {
       const r = run(s);
       const note = r.fail > 0 ? 'FAILURES' : 'ok';
@@ -69,6 +98,17 @@ function main() {
       console.log(`${s}: PASS=${pass} FAIL=${fail} CRASH/EXIT!=0`);
       failed = true;
     }
+  };
+
+  for (const s of SUITES) {
+    // pos-test asserts absolute stock levels — always start it from a fresh seed.
+    if (s === 'auth-test' || s === 'pos-test') setup();
+    if (s === 'tenant-isolation-test') {
+      console.log('(starting live API server for isolation test)');
+      await runWithLiveServer(() => runOne(s));
+      continue;
+    }
+    runOne(s);
   }
 
   console.log('\n--- Summary ---');
