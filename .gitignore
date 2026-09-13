@@ -37,6 +37,11 @@ docker/data/
 # Test coverage
 coverage/
 
+# Playwright e2e artifacts (specs are committed, outputs are not)
+apps/web/e2e/screenshots/
+apps/web/e2e/test-results/
+playwright-report/
+
 # Temp
 tmp/
 temp/
