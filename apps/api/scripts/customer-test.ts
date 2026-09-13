@@ -2,6 +2,14 @@ import { prisma, setup, teardown, api, pass, fail, hasFailures, tenantId, namedI
 
 async function main() {
   await setup(); console.log('\n=== Customer Tests ===\n');
+  // Idempotency: remove leftovers from prior runs (fixed phone/email would 409 otherwise)
+  const stale = await prisma.customer.findMany({ where: { tenantId, OR: [{ email: 'e2e@cust.com' }, { phone: '0300-9999999' }] }, select: { id: true } }).catch(() => []);
+  if (stale.length > 0) {
+    const ids = stale.map((s) => s.id);
+    await prisma.customerPayment.deleteMany({ where: { tenantId, customerId: { in: ids } } }).catch(() => {});
+    await prisma.customerLedger.deleteMany({ where: { tenantId, customerId: { in: ids } } }).catch(() => {});
+    await prisma.customer.deleteMany({ where: { tenantId, id: { in: ids } } }).catch(() => {});
+  }
   let custId = '';
 
   try { const r = await api('POST', '/api/v1/customers', { fullName: 'E2E Customer', email: 'e2e@cust.com', phone: '0300-9999999', creditLimit: 50000 }); if (r.status === 201) { pass('A1: Created'); custId = r.body?.data?.id; if (r.body?.data?.customerCode) pass('A1: Auto code'); } else fail('A1', `Status ${r.status}`); } catch (e: any) { fail('A1', e.message); }
