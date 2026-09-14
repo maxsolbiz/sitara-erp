@@ -3,6 +3,7 @@ import prisma from '../lib/prisma';
 import { getTenantContext } from '../lib/prisma';
 import { rbacMiddleware } from '../middleware/rbac';
 import { hashPassword, parseIdParam } from '../utils/helpers';
+import { logActivity } from '../utils/activity';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -55,14 +56,23 @@ router.post('/', rbacMiddleware('users.manage'), async (req: Request, res: Respo
     const user = await prisma.user.create({
       data: { tenantId: ctx.tenantId, username, email, passwordHash, fullName, isActive: true, status: 'active' },
     });
+    logger.info('User created', { userId: user.id.toString(), tenantId: ctx.tenantId.toString() });
+    let roleName: string | undefined;
     if (roleId) {
       await prisma.roleUser.upsert({
         where: { userId_roleId: { userId: user.id, roleId: BigInt(roleId) } },
         create: { userId: user.id, roleId: BigInt(roleId) },
         update: {},
       });
+      roleName = (await prisma.role.findUnique({ where: { id: BigInt(roleId) }, select: { name: true } }))?.name;
     }
-    logger.info('User created', { userId: user.id.toString(), tenantId: ctx.tenantId.toString() });
+    void logActivity({
+      tenantId: ctx.tenantId, userId: req.user ? BigInt(req.user.userId) : undefined,
+      action: 'USER_CREATE', entityType: 'user', entityId: user.id,
+      description: `User ${username} created`,
+      newValues: { username, email, fullName, role: roleName },
+      ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
+    });
     res.status(201).json({ data: { id: user.id.toString(), username: user.username, email: user.email } });
   } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
 });
@@ -76,7 +86,18 @@ router.put('/:id', rbacMiddleware('users.manage'), async (req: Request, res: Res
     if (fullName !== undefined) data.fullName = fullName;
     if (email !== undefined) data.email = email;
     if (isActive !== undefined) data.isActive = isActive;
+    const before = await prisma.user.findFirst({ where: { id: BigInt(req.params.id), tenantId: ctx.tenantId }, select: { username: true, isActive: true } });
     await prisma.user.updateMany({ where: { id: BigInt(req.params.id), tenantId: ctx.tenantId }, data });
+    if (isActive !== undefined && before && before.isActive !== isActive) {
+      const activating = isActive === true;
+      void logActivity({
+        tenantId: ctx.tenantId, userId: req.user ? BigInt(req.user.userId) : undefined,
+        action: activating ? 'USER_REACTIVATE' : 'USER_DEACTIVATE', entityType: 'user', entityId: BigInt(req.params.id),
+        description: `User ${before.username} ${activating ? 'reactivated' : 'deactivated'}`,
+        oldValues: { isActive: before.isActive }, newValues: { isActive },
+        ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
+      });
+    }
     res.json({ data: { message: 'User updated' } });
   } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
 });
@@ -98,6 +119,14 @@ router.delete('/:id', rbacMiddleware('users.manage'), async (req: Request, res: 
       }
     }
     await prisma.user.updateMany({ where: { id: userId, tenantId: ctx.tenantId }, data: { isActive: false, status: 'inactive' } });
+    const deleted = await prisma.user.findFirst({ where: { id: userId, tenantId: ctx.tenantId }, select: { username: true } });
+    void logActivity({
+      tenantId: ctx.tenantId, userId: req.user ? BigInt(req.user.userId) : undefined,
+      action: 'USER_DEACTIVATE', entityType: 'user', entityId: userId,
+      description: `User ${deleted?.username || userId} deactivated (soft delete)`,
+      oldValues: { isActive: true }, newValues: { isActive: false },
+      ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
+    });
     res.json({ data: { message: 'User deactivated' } });
   } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
 });
@@ -121,12 +150,24 @@ router.patch('/:id/roles', rbacMiddleware('users.manage'), async (req: Request, 
     const userId = BigInt(req.params.id);
     const { roleIds } = req.body;
     if (!Array.isArray(roleIds)) { res.status(400).json({ status: 400, detail: 'roleIds array required' }); return; }
+    const beforeLinks = await prisma.roleUser.findMany({ where: { userId }, include: { role: { select: { slug: true } } } });
+    const beforeSlugs = beforeLinks.map((l) => l.role.slug);
     // Remove existing
     await prisma.roleUser.deleteMany({ where: { userId } });
     // Add new
     for (const rid of roleIds) {
       await prisma.roleUser.create({ data: { userId, roleId: BigInt(rid) } });
     }
+    const afterRoles = await prisma.role.findMany({ where: { id: { in: roleIds.map((r: any) => BigInt(r)) } }, select: { slug: true } });
+    const afterSlugs = afterRoles.map((r) => r.slug);
+    const target = await prisma.user.findFirst({ where: { id: userId, tenantId: ctx.tenantId }, select: { username: true } });
+    void logActivity({
+      tenantId: ctx.tenantId, userId: req.user ? BigInt(req.user.userId) : undefined,
+      action: 'USER_ROLE_ASSIGN', entityType: 'user', entityId: userId,
+      description: `Roles updated for ${target?.username || userId}`,
+      oldValues: { roles: beforeSlugs }, newValues: { roles: afterSlugs },
+      ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
+    });
     res.json({ data: { message: 'Roles updated' } });
   } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
 });

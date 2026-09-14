@@ -3,6 +3,7 @@ import prisma from '../lib/prisma';
 import { getTenantContext } from '../lib/prisma';
 import { rbacMiddleware } from '../middleware/rbac';
 import { parseIdParam } from '../utils/helpers';
+import { logActivity } from '../utils/activity';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -53,11 +54,21 @@ router.post('/roles', rbacMiddleware('rbac.manage'), async (req: Request, res: R
     if (!name) { res.status(400).json({ status: 400, detail: 'Name is required' }); return; }
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
     const role = await prisma.role.create({ data: { tenantId: ctx.tenantId, name, slug, description: description || null, isSystem: false } });
+    let permSlugs: string[] = [];
     if (permissionIds && Array.isArray(permissionIds)) {
       for (const pid of permissionIds) {
         await prisma.rolePermission.create({ data: { roleId: role.id, permissionId: BigInt(pid) } });
       }
+      const perms = await prisma.permission.findMany({ where: { id: { in: permissionIds.map((p: any) => BigInt(p)) } }, select: { slug: true } });
+      permSlugs = perms.map((p) => p.slug);
     }
+    void logActivity({
+      tenantId: ctx.tenantId, userId: req.user ? BigInt(req.user.userId) : undefined,
+      action: 'ROLE_CREATE', entityType: 'role', entityId: role.id,
+      description: `Role ${name} created`,
+      newValues: { name, slug, permissions: permSlugs },
+      ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
+    });
     res.status(201).json({ data: { id: role.id.toString(), name, slug } });
   } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
 });
@@ -70,7 +81,16 @@ router.put('/roles/:id', rbacMiddleware('rbac.manage'), async (req: Request, res
     const data: any = {};
     if (name !== undefined) data.name = name;
     if (description !== undefined) data.description = description;
+    const before = await prisma.role.findFirst({ where: { id: BigInt(req.params.id), tenantId: ctx.tenantId }, select: { name: true, description: true } });
     await prisma.role.updateMany({ where: { id: BigInt(req.params.id), tenantId: ctx.tenantId }, data });
+    void logActivity({
+      tenantId: ctx.tenantId, userId: req.user ? BigInt(req.user.userId) : undefined,
+      action: 'ROLE_UPDATE', entityType: 'role', entityId: BigInt(req.params.id),
+      description: `Role ${before?.name || req.params.id} updated`,
+      oldValues: before ? { name: before.name, description: before.description } : null,
+      newValues: data,
+      ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
+    });
     res.json({ data: { message: 'Role updated' } });
   } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
 });
@@ -84,8 +104,16 @@ router.delete('/roles/:id', rbacMiddleware('rbac.manage'), async (req: Request, 
     if (role.isSystem) { res.status(400).json({ status: 400, detail: 'Cannot delete built-in roles' }); return; }
     const userCount = await prisma.roleUser.count({ where: { roleId: role.id } });
     if (userCount > 0) { res.status(400).json({ status: 400, detail: `Cannot delete role with ${userCount} assigned user(s)` }); return; }
+    const rolePerms = await prisma.rolePermission.findMany({ where: { roleId: role.id }, include: { permission: { select: { slug: true } } } });
     await prisma.rolePermission.deleteMany({ where: { roleId: role.id } });
     await prisma.role.delete({ where: { id: role.id } });
+    void logActivity({
+      tenantId: ctx.tenantId, userId: req.user ? BigInt(req.user.userId) : undefined,
+      action: 'ROLE_DELETE', entityType: 'role', entityId: role.id,
+      description: `Role ${role.name} deleted`,
+      oldValues: { name: role.name, slug: role.slug, permissions: rolePerms.map((p) => p.permission.slug) },
+      ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
+    });
     res.json({ data: { message: 'Role deleted' } });
   } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
 });
@@ -97,11 +125,23 @@ router.patch('/roles/:id/permissions', rbacMiddleware('rbac.manage'), async (req
     const roleId = BigInt(req.params.id);
     const { permissionIds } = req.body;
     if (!Array.isArray(permissionIds)) { res.status(400).json({ status: 400, detail: 'permissionIds array required' }); return; }
+    const beforeLinks = await prisma.rolePermission.findMany({ where: { roleId }, include: { permission: { select: { slug: true } } } });
+    const beforeSlugs = beforeLinks.map((l) => l.permission.slug);
     await prisma.rolePermission.deleteMany({ where: { roleId } });
     for (const pid of permissionIds) {
       await prisma.rolePermission.create({ data: { roleId, permissionId: BigInt(pid) } });
     }
+    const afterLinks = await prisma.permission.findMany({ where: { id: { in: permissionIds.map((p: any) => BigInt(p)) } }, select: { slug: true } });
+    const afterSlugs = afterLinks.map((p) => p.slug);
     logger.info('Role permissions updated', { roleId: req.params.id, permissionCount: permissionIds.length });
+    void logActivity({
+      tenantId: ctx.tenantId, userId: req.user ? BigInt(req.user.userId) : undefined,
+      action: 'ROLE_UPDATE', entityType: 'role', entityId: roleId,
+      description: `Role permissions updated (${beforeSlugs.length} → ${afterSlugs.length})`,
+      oldValues: { permissions: beforeSlugs },
+      newValues: { permissions: afterSlugs },
+      ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
+    });
     res.json({ data: { message: 'Permissions updated' } });
   } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
 });
@@ -132,6 +172,17 @@ router.post('/roles/:id/users/:userId', rbacMiddleware('rbac.manage'), async (re
       create: { userId, roleId },
       update: {},
     });
+    const [role, user] = await Promise.all([
+      prisma.role.findUnique({ where: { id: roleId }, select: { name: true } }),
+      prisma.user.findUnique({ where: { id: userId }, select: { username: true } }),
+    ]);
+    void logActivity({
+      tenantId: ctx.tenantId, userId: req.user ? BigInt(req.user.userId) : undefined,
+      action: 'USER_ROLE_ASSIGN', entityType: 'user', entityId: userId,
+      description: `Role ${role?.name || req.params.id} assigned to ${user?.username || req.params.userId}`,
+      newValues: { roleId: roleId.toString(), roleName: role?.name },
+      ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
+    });
     res.json({ data: { message: 'Role assigned' } });
   } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
 });
@@ -149,6 +200,17 @@ router.delete('/roles/:id/users/:userId', rbacMiddleware('rbac.manage'), async (
       if (adminCount <= 1) { res.status(400).json({ status: 400, detail: 'Cannot remove the last admin role' }); return; }
     }
     await prisma.roleUser.deleteMany({ where: { userId, roleId } });
+    const [roleInfo, userInfo] = await Promise.all([
+      prisma.role.findUnique({ where: { id: roleId }, select: { name: true } }),
+      prisma.user.findUnique({ where: { id: userId }, select: { username: true } }),
+    ]);
+    void logActivity({
+      tenantId: ctx.tenantId, userId: req.user ? BigInt(req.user.userId) : undefined,
+      action: 'USER_ROLE_UNASSIGN', entityType: 'user', entityId: userId,
+      description: `Role ${roleInfo?.name || req.params.id} removed from ${userInfo?.username || req.params.userId}`,
+      oldValues: { roleId: roleId.toString(), roleName: roleInfo?.name },
+      ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
+    });
     res.json({ data: { message: 'Role removed' } });
   } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
 });
