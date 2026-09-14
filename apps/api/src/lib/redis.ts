@@ -24,6 +24,16 @@ export function getRedis(): Redis {
   return redis;
 }
 
+/**
+ * Dedicated connection for BullMQ (queues/workers). BullMQ requires
+ * maxRetriesPerRequest: null and manages retries/blocking itself — the
+ * shared client above (maxRetriesPerRequest: 3) makes Workers refuse to
+ * start. Separate instance, same URL (incl. password).
+ */
+export function getBullMQConnection(): Redis {
+  return new Redis(config.redis.url, { maxRetriesPerRequest: null });
+}
+
 export async function closeRedis(): Promise<void> {
   if (redis) {
     await redis.quit();

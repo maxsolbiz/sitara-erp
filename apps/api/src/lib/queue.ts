@@ -1,5 +1,5 @@
 import { Queue, Worker, QueueEvents } from 'bullmq';
-import { getRedis } from './redis';
+import { getBullMQConnection } from './redis';
 
 export const QUEUE_NAMES = {
   PDF: 'pdf-generation',
@@ -9,7 +9,7 @@ export const QUEUE_NAMES = {
 } as const;
 
 export function createQueue(name: string): Queue {
-  const connection = getRedis();
+  const connection = getBullMQConnection();
   return new Queue(name, { connection: connection as any });
 }
 
@@ -22,7 +22,7 @@ export function createWorker(
   processor: (job: any) => Promise<any>,
   options?: { concurrency?: number }
 ): Worker {
-  const connection = getRedis();
+  const connection = getBullMQConnection();
   return new Worker(name, processor, {
     connection: connection as any,
     concurrency: options?.concurrency || 1,
