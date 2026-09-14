@@ -119,6 +119,58 @@ async function main() {
   // C5: Cannot delete self
   try { const me = await api('GET', '/api/v1/auth/me'); const myId = me.body?.data?.id; if (myId) { const r = await api('DELETE', `/api/v1/users/${myId}`); if (r.status === 400) pass('C5: Cannot delete self'); else fail('C5', `Status ${r.status}`); } else fail('C5', 'Could not get my ID'); } catch (e: any) { fail('C5', e.message); }
 
+  // D1-D7: Forgot/reset password (uses manager@test.com test user)
+  try {
+    const r = await api('POST', '/api/v1/auth/forgot-password', { email: 'manager@test.com' });
+    if (r.status === 200) pass('D1: Forgot request accepted'); else fail('D1', `Status ${r.status}`);
+    const mgr = await prisma.user.findFirst({ where: { tenantId, email: 'manager@test.com' }, select: { id: true, resetToken: true, resetTokenExpiry: true } });
+    if (mgr?.resetToken && mgr.resetTokenExpiry && mgr.resetTokenExpiry.getTime() > Date.now()) pass('D2: Reset token stored with future expiry');
+    else fail('D2', 'token/expiry missing');
+    const token = mgr!.resetToken!;
+    // Negative: invalid token
+    try { const bad = await api('POST', '/api/v1/auth/reset-password', { token: 'invalid-token-xyz', newPassword: 'Newpass123' }); if (bad.status === 400) pass('D3: Invalid token rejected'); else fail('D3', `Status ${bad.status}`); } catch (e: any) { fail('D3', e.message); }
+    // Negative: expired token (force expiry, then attempt)
+    await prisma.user.update({ where: { id: mgr!.id }, data: { resetTokenExpiry: new Date(Date.now() - 1000) } });
+    try { const exp = await api('POST', '/api/v1/auth/reset-password', { token, newPassword: 'Newpass123' }); if (exp.status === 400) pass('D4: Expired token rejected'); else fail('D4', `Status ${exp.status}`); } catch (e: any) { fail('D4', e.message); }
+    // Positive: fresh token works once...
+    await api('POST', '/api/v1/auth/forgot-password', { email: 'manager@test.com' });
+    const mgr2 = await prisma.user.findFirst({ where: { tenantId, email: 'manager@test.com' }, select: { id: true, resetToken: true } });
+    const token2 = mgr2!.resetToken!;
+    try { const ok = await api('POST', '/api/v1/auth/reset-password', { token: token2, newPassword: 'Newpass123' }); if (ok.status === 200) pass('D5: Reset succeeds'); else fail('D5', `Status ${ok.status}`); } catch (e: any) { fail('D5', e.message); }
+    // ...and cannot be reused
+    try { const reuse = await api('POST', '/api/v1/auth/reset-password', { token: token2, newPassword: 'Newpass123' }); if (reuse.status === 400) pass('D6: Reused token rejected'); else fail('D6', `Status ${reuse.status}`); } catch (e: any) { fail('D6', e.message); }
+    // Restore manager password for other tests
+    await api('POST', '/api/v1/auth/forgot-password', { email: 'manager@test.com' });
+    const mgr3 = await prisma.user.findFirst({ where: { tenantId, email: 'manager@test.com' }, select: { resetToken: true } });
+    await api('POST', '/api/v1/auth/reset-password', { token: mgr3!.resetToken!, newPassword: 'manager123' });
+    const backIn = await api('POST', '/api/v1/auth/login', { email: 'manager@test.com', password: 'manager123' });
+    if (backIn.status === 200) pass('D7: Original password restored'); else fail('D7', `Status ${backIn.status}`);
+  } catch (e: any) { fail('D-forgot', e.message); }
+
+  // E1-E3: mustChangePassword server-side enforcement
+  try {
+    const mgr = await prisma.user.findFirst({ where: { tenantId, email: 'manager@test.com' }, select: { id: true } });
+    await prisma.user.update({ where: { id: mgr!.id }, data: { mustChangePassword: true } });
+    const lg = await api('POST', '/api/v1/auth/login', { email: 'manager@test.com', password: 'manager123' });
+    const tok = lg.body?.data?.accessToken;
+    if (lg.status === 200 && tok) pass('E1: Flagged user can still log in'); else fail('E1', `Status ${lg.status}`);
+    const blocked = await api('GET', '/api/v1/products', undefined, tok);
+    if (blocked.status === 403 && (blocked.body?.code === 'PASSWORD_CHANGE_REQUIRED' || JSON.stringify(blocked.body).includes('PASSWORD_CHANGE_REQUIRED'))) pass('E2: Unrelated endpoint blocked with code');
+    else fail('E2', `Status ${blocked.status}`);
+    const chg = await api('PUT', '/api/v1/auth/password', { currentPassword: 'manager123', newPassword: 'TempPass123' }, tok);
+    if (chg.status === 200) pass('E3a: Password change allowed while flagged'); else fail('E3a', `Status ${chg.status}`);
+    // Password change kills all sessions (incl. current) by design — re-login with the new password
+    const lg2 = await api('POST', '/api/v1/auth/login', { email: 'manager@test.com', password: 'TempPass123' });
+    const tok2 = lg2.body?.data?.accessToken;
+    if (lg2.status === 200 && tok2) pass('E3b: Re-login with new password'); else fail('E3b', `Status ${lg2.status}`);
+    const after = tok2 ? await api('GET', '/api/v1/products', undefined, tok2) : { status: 0 };
+    if (after.status === 200) pass('E3c: Full access restored after change'); else fail('E3c', `Status ${after.status}`);
+    // Restore original password via the new token
+    if (tok2) await api('PUT', '/api/v1/auth/password', { currentPassword: 'TempPass123', newPassword: 'manager123' }, tok2);
+    const fin = await prisma.user.findFirst({ where: { id: mgr!.id }, select: { mustChangePassword: true } });
+    if (fin?.mustChangePassword === false) pass('E3d: Flag cleared'); else fail('E3d', 'flag still set');
+  } catch (e: any) { fail('E-mustchange', e.message); }
+
   await teardown();
   await prisma.$disconnect();
   console.log(hasFailures ? '\nFAILURES DETECTED' : '\nAll auth tests done');
