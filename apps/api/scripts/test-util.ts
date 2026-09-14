@@ -34,7 +34,8 @@ export async function setup() {
   tierId = (await prisma.customer.findFirst({ where: { customerCode: 'TEST-TIER', tenantId } }))!.id;
   productAId = (await prisma.product.findFirst({ where: { sku: 'TST-PRODA', tenantId } }))!.id;
   productBId = (await prisma.product.findFirst({ where: { sku: 'TST-PRODB', tenantId } }))!.id;
-  const wh = await prisma.warehouse.findFirst({ where: { tenantId, isDefault: true } }) || await prisma.warehouse.findFirst({ where: { tenantId } });
+  const wh = await prisma.warehouse.findFirst({ where: { tenantId, isDefault: true } })
+    || await prisma.warehouse.findFirst({ where: { tenantId }, orderBy: { id: 'asc' } });
   whId = wh!.id;
   authToken = generateAccessToken({ userId: managerUser!.id, tenantId, tenantSlug: 'test-tenant' });
   cashierToken = generateAccessToken({ userId: cashierUser!.id, tenantId, tenantSlug: 'test-tenant' });
