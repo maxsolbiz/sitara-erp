@@ -6,10 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { Suspense } from 'react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1';
 
-export default function ResetPasswordPage() {
+function ResetPasswordContent() {
   const params = useSearchParams();
   const router = useRouter();
   const token = params.get('token') || '';
@@ -68,10 +69,18 @@ export default function ResetPasswordPage() {
           </div>
           {error && <div className="text-sm text-destructive bg-destructive/10 p-3 rounded-md">{error}</div>}
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? 'Saving...' : 'Set Password'}
+            {loading ? 'Saving...' : 'Set Password & Continue'}
           </Button>
         </form>
       </CardContent>
     </Card>
+  );
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-64"><p>Loading...</p></div>}>
+      <ResetPasswordContent />
+    </Suspense>
   );
 }

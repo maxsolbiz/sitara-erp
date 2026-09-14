@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Providers } from '@/components/providers';
 import '@/styles/globals.css';
 
@@ -7,8 +7,11 @@ export const metadata: Metadata = {
   description: 'Sitara ERP — Business Management System',
   icons: { icon: '/favicon.svg', shortcut: '/favicon.svg' },
   manifest: '/manifest.json',
-  themeColor: '#0f172a',
   appleWebApp: { capable: true, statusBarStyle: 'black-translucent', title: 'Sitara ERP' },
+};
+
+export const viewport: Viewport = {
+  themeColor: '#0f172a',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
