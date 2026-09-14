@@ -1,5 +1,6 @@
 import prisma from '../lib/prisma';
 import { getTenantContext } from '../lib/prisma';
+import { logActivity } from '../utils/activity';
 
 export class AccountingService {
   async getChartOfAccounts() {
@@ -30,18 +31,27 @@ export class AccountingService {
     return { items: items.map((e) => ({ id: e.id.toString(), entryNumber: e.entryNumber, entryDate: e.entryDate, description: e.description, totalDebit: Number(e.totalDebit), totalCredit: Number(e.totalCredit), isReversed: e.isReversed, referenceType: e.referenceType, referenceId: e.referenceId?.toString() || null, createdAt: e.createdAt, lines: e.lines?.map((l) => ({ id: l.id.toString(), accountId: l.accountId.toString(), debitAmount: Number(l.debitAmount), creditAmount: Number(l.creditAmount), description: l.description, account: l.account })) })), total, page };
   }
 
-  async createJournalEntry(data: any) {
+  async createJournalEntry(data: any, meta?: { userId?: bigint; ipAddress?: string; userAgent?: string }) {
     const ctx = getTenantContext(); if (!ctx) throw new Error('No tenant');
     const entryNumber = `JE-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${String(Math.floor(Math.random() * 9999)).padStart(4, '0')}`;
-    return prisma.$transaction(async (tx) => {
-      const totalDebit = data.lines.reduce((s: number, l: any) => s + (l.debitAmount || 0), 0);
-      const totalCredit = data.lines.reduce((s: number, l: any) => s + (l.creditAmount || 0), 0);
+    const totalDebit = data.lines.reduce((s: number, l: any) => s + (l.debitAmount || 0), 0);
+    const totalCredit = data.lines.reduce((s: number, l: any) => s + (l.creditAmount || 0), 0);
+    const result = await prisma.$transaction(async (tx) => {
       if (Math.abs(totalDebit - totalCredit) > 0.01) throw new Error('Debits must equal credits');
       const entry = await tx.journalEntry.create({
         data: { tenantId: ctx.tenantId, entryNumber, entryDate: new Date(data.entryDate), description: data.description, totalDebit, totalCredit, createdBy: BigInt(ctx.tenantId), lines: { create: data.lines.map((l: any) => ({ tenantId: ctx.tenantId, accountId: BigInt(l.accountId), debitAmount: l.debitAmount || 0, creditAmount: l.creditAmount || 0, description: l.description || null })) } },
       });
       return { id: entry.id.toString(), entryNumber: entry.entryNumber };
     });
+    // Logged AFTER commit — never inside the transaction (a logging failure
+    // must not roll back financial data).
+    void logActivity({
+      tenantId: ctx.tenantId, userId: meta?.userId, action: 'JE_CREATE', entityType: 'journal_entry',
+      entityId: BigInt(result.id), description: `Journal entry ${result.entryNumber} created`,
+      newValues: { entryNumber: result.entryNumber, totalDebit, totalCredit, lines: data.lines },
+      ipAddress: meta?.ipAddress, userAgent: meta?.userAgent,
+    });
+    return result;
   }
 
   async getTrialBalance(financialYearId?: bigint) {

@@ -3,6 +3,7 @@ import prisma from '../lib/prisma';
 import { getTenantContext } from '../lib/prisma';
 import { rbacMiddleware } from '../middleware/rbac';
 import { parseIdParam } from '../utils/helpers';
+import { logActivity } from '../utils/activity';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -207,6 +208,14 @@ router.post('/:id/close', rbacMiddleware('accounting.accounts.manage'), async (r
     });
 
     logger.info('Financial year closed', { fyId: fy.id.toString(), name: fy.name, tenantId: tenantId.toString() });
+    void logActivity({
+      tenantId, userId: req.user ? BigInt(req.user.userId) : undefined,
+      action: 'FY_CLOSE', entityType: 'financial_year', entityId: fy.id,
+      description: `Financial year ${fy.name} closed`,
+      oldValues: { status: 'OPEN' },
+      newValues: { status: 'CLOSED', closedBy: req.user?.userId },
+      ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
+    });
     res.json({ data: { message: `Financial year ${fy.name} closed successfully` } });
   } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
 });

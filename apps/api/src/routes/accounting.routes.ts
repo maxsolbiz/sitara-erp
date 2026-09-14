@@ -4,6 +4,7 @@ import { getTenantContext } from '../lib/prisma';
 import { accountingService } from '../services/accounting.service';
 import { rbacMiddleware } from '../middleware/rbac';
 import { parseIdParam } from '../utils/helpers';
+import { logActivity } from '../utils/activity';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -46,7 +47,13 @@ router.get('/journal-entries', rbacMiddleware('accounting.view'), async (req: Re
 });
 
 router.post('/journal-entries', rbacMiddleware('accounting.journals.create'), async (req: Request, res: Response) => {
-  try { const r = await accountingService.createJournalEntry(req.body); res.status(201).json({ data: r }); }
+  try {
+    const r = await accountingService.createJournalEntry(req.body, {
+      userId: req.user ? BigInt(req.user.userId) : undefined,
+      ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
+    });
+    res.status(201).json({ data: r });
+  }
   catch (e: any) {
     const msg = e.message || '';
     if (msg.includes('must equal credits') || msg.includes('Debits') || msg.includes('balanced')) {
@@ -144,6 +151,14 @@ router.post('/journal-entries/:id/reverse', rbacMiddleware('accounting.journals.
     });
 
     logger.info('Journal entry reversed', { originalEntryId: req.params.id, reversalNumber: result.entryNumber });
+    void logActivity({
+      tenantId: ctx.tenantId, userId: req.user ? BigInt(req.user.userId) : undefined,
+      action: 'JE_REVERSE', entityType: 'journal_entry', entityId: entry.id,
+      description: `Journal entry ${entry.entryNumber} reversed (${result.entryNumber})`,
+      oldValues: { isReversed: false, reversedEntryId: null },
+      newValues: { isReversed: true, reversedEntryId: result.id, reversalNumber: result.entryNumber, reason },
+      ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
+    });
     res.status(201).json({ data: result });
   } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
 });

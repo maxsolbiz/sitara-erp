@@ -10,6 +10,7 @@ import logger from '../utils/logger';
 import { getDefaultWarehouse } from '../utils/warehouse';
 import { ACCOUNT_CODES } from '../constants/accounts';
 import { parseIdParam } from '../utils/helpers';
+import { logActivity } from '../utils/activity';
 
 const router = Router();
 
@@ -258,6 +259,14 @@ router.patch('/:id/void', rbacMiddleware('sales.void'), async (req: Request, res
     });
 
     logger.info('Sale voided', { saleNumber: sale.saleNumber, tenantId: ctx.tenantId.toString() });
+    void logActivity({
+      tenantId: ctx.tenantId, userId: req.user ? BigInt(req.user.userId) : undefined,
+      action: 'SALE_VOID', entityType: 'sale', entityId: sale.id,
+      description: `Sale ${sale.saleNumber} voided${voidReason ? `: ${voidReason}` : ''}`,
+      oldValues: { status: 'COMPLETED' },
+      newValues: { status: 'CANCELLED', voidRef, voidReason },
+      ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
+    });
     res.json({ data: { message: 'Sale voided successfully', saleNumber: sale.saleNumber } });
   } catch (error: any) {
     logger.error('Void sale failed', { error: error.message });
