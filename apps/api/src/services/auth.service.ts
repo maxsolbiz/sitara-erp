@@ -1,5 +1,6 @@
 import prisma from '../lib/prisma';
 import { hashPassword, verifyPassword, generateAccessToken, generateRefreshToken, verifyRefreshToken, verifyAccessToken } from '../utils/helpers';
+import { logActivity } from '../utils/activity';
 import { getRedis } from '../lib/redis';
 import logger from '../utils/logger';
 
@@ -184,6 +185,8 @@ export class AuthService {
     });
 
     if (!user) {
+      // No tenant attributable — helper no-ops without one; still call for intent.
+      void logActivity({ action: 'LOGIN_FAILED', entityType: 'user', description: `Failed login attempt for ${email}`, ipAddress: meta?.ipAddress, userAgent: meta?.userAgent });
       throw new Error('INVALID_CREDENTIALS');
     }
 
@@ -201,6 +204,7 @@ export class AuthService {
         where: { id: user.id },
         data: { loginAttempts: { increment: 1 } },
       });
+      void logActivity({ tenantId: user.tenantId, userId: user.id, action: 'LOGIN_FAILED', entityType: 'user', entityId: user.id, description: `Failed login attempt for ${email}`, ipAddress: meta?.ipAddress, userAgent: meta?.userAgent });
 
       const updated = await prisma.user.findUnique({ where: { id: user.id } });
       if (updated && updated.loginAttempts >= 5) {
@@ -265,6 +269,8 @@ export class AuthService {
     } catch (e: any) {
       logger.warn('Session row creation failed (login still succeeds)', { error: e.message });
     }
+
+    void logActivity({ tenantId: user.tenantId, userId: user.id, action: 'LOGIN', entityType: 'user', entityId: user.id, description: `User ${user.username} logged in`, ipAddress: meta?.ipAddress, userAgent: meta?.userAgent });
 
     return {
       accessToken,
@@ -353,7 +359,7 @@ export class AuthService {
     return { accessToken: newAccessToken, refreshToken: newRefreshToken };
   }
 
-  async logout(userId: bigint, jti?: string) {
+  async logout(userId: bigint, jti?: string, meta?: { ipAddress?: string; userAgent?: string }) {
     const redis = getRedis();
     await redis.del(`refresh:${userId}`);
     // Deactivate this session's row so the access token is rejected going
@@ -361,6 +367,8 @@ export class AuthService {
     if (jti) {
       await prisma.userSession.updateMany({ where: { sessionToken: jti, userId }, data: { isActive: false } }).catch(() => {});
     }
+    // Tenant resolves from request context (logout route is authenticated).
+    void logActivity({ userId, action: 'LOGOUT', entityType: 'user', entityId: userId, description: 'User logged out', ipAddress: meta?.ipAddress, userAgent: meta?.userAgent });
   }
 }
 

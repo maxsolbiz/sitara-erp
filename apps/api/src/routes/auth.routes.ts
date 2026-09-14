@@ -110,7 +110,10 @@ router.post('/refresh', validateMiddleware(refreshSchema), async (req: Request, 
 router.post('/logout', authMiddleware, async (req: Request, res: Response) => {
   try {
     if (req.user) {
-      await authService.logout(BigInt(req.user.userId), req.user.jti);
+      await authService.logout(BigInt(req.user.userId), req.user.jti, {
+        ipAddress: req.ip || (req.socket?.remoteAddress as string) || '',
+        userAgent: (req.headers['user-agent'] as string) || '',
+      });
     }
     res.json({ data: { message: 'Logged out successfully' } });
   } catch (error: any) {
