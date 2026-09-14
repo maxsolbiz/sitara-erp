@@ -35,7 +35,7 @@ export const config = {
 
   resend: {
     apiKey: process.env.RESEND_API_KEY || '',
-    from: process.env.MAIL_FROM || 'noreply@sitara.pk',
+    from: process.env.MAIL_FROM || 'noreply@sitarapurse.com',
   },
 
   sentry: {

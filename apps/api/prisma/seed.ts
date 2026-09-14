@@ -199,7 +199,7 @@ async function main() {
   console.log(`Chart of accounts: ${DEFAULT_CHART_OF_ACCOUNTS.length}`);
 
   console.log('Seed complete!');
-  console.log('  Demo tenant: demo (subdomain: demo.sitara.pk)');
+  console.log('  Demo tenant: demo (subdomain: demo.sitarapurse.com)');
   console.log('  Admin login: admin@demo.com / admin123');
 }
 

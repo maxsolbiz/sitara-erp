@@ -302,7 +302,7 @@ router.post('/:id/send-email', rbacMiddleware('sales.email'), async (req: Reques
 
     // Send via Resend
     const resendKey = await settingService.getSetting(ctx.tenantId, 'email_resend_api_key', '');
-    const fromEmail = await settingService.getSetting(ctx.tenantId, 'email_from_address', 'noreply@sitara.pk');
+    const fromEmail = await settingService.getSetting(ctx.tenantId, 'email_from_address', 'noreply@sitarapurse.com');
     const fromName = await settingService.getSetting(ctx.tenantId, 'email_from_name', companyName);
 
     try {

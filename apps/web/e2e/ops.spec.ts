@@ -101,6 +101,8 @@ test.describe('PART D — activity log + sessions', () => {
     // so assert on id-SET differences, never absolute counts.
     const idsOf = async (t: string) => new Set((await listOf(t)).map((s: any) => String(s.id)));
     const beforeIds = await idsOf(tokenA);
+    const newIdsFrom = (after: Set<unknown>, before: Set<unknown>) =>
+      Array.from(after).filter((id) => !before.has(id)) as string[];
 
     // Second session via API (deterministic target: the newly-appearing row)
     const second = await page.request.post('http://localhost:3000/api/v1/auth/login', {
@@ -117,7 +119,7 @@ test.describe('PART D — activity log + sessions', () => {
     await sessionsTitle.scrollIntoViewIfNeeded();
     await expect(sessionsTitle).toBeVisible({ timeout: 20000 });
     const afterIds = await idsOf(tokenA);
-    const newIds = [...afterIds].filter((id) => !beforeIds.has(id));
+    const newIds = newIdsFrom(afterIds, beforeIds);
     console.log(`SESSIONS before=${beforeIds.size} after=${afterIds.size} new=${JSON.stringify(newIds)}`);
     expect(newIds.length).toBeGreaterThanOrEqual(1);
     const targetId = newIds[0];

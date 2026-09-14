@@ -93,7 +93,7 @@ export default function RegisterPage() {
                 className="rounded-r-none"
               />
               <span className="inline-flex items-center px-3 rounded-r-md border border-l-0 border-input bg-muted text-muted-foreground text-sm">
-                .sitara.pk
+                .sitarapurse.com
               </span>
             </div>
           </div>

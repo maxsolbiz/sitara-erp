@@ -50,6 +50,43 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
     tenantSlug: payload.tenantSlug,
   });
 
+  // Routes a must-change-password user may still call (to actually change it,
+  // view their own profile state, or log out). Everything else is blocked
+  // server-side — a frontend redirect alone would not stop direct API calls.
+  // NOTE: req.path is mount-relative inside routers, so match on
+  // req.originalUrl (the full path) instead.
+  const PASSWORD_CHANGE_ALLOWLIST = [
+    '/auth/password',
+    '/auth/me',
+    '/auth/logout',
+  ];
+  const checkPasswordFlag = () => {
+    const fullPath: string = (req.originalUrl || '').split('?')[0];
+    if (PASSWORD_CHANGE_ALLOWLIST.some((p) => fullPath.endsWith(p))) {
+      next();
+      return;
+    }
+    prisma.user.findUnique({
+      where: { id: BigInt(payload.userId) },
+      select: { mustChangePassword: true },
+    }).then((user) => {
+      if (user?.mustChangePassword) {
+        res.status(403).json({
+          type: 'https://httpstatuses.io/403',
+          title: 'Forbidden',
+          code: 'PASSWORD_CHANGE_REQUIRED',
+          detail: 'You must change your password before continuing',
+          status: 403,
+        });
+        return;
+      }
+      next();
+    }).catch((error) => {
+      logger.error('Password-flag check error', { error: (error as Error).message });
+      next();
+    });
+  };
+
   // Session revocation check (DB lookup): a token whose session row exists
   // but isActive=false was explicitly terminated/logged-out → reject.
   // Tokens with no row at all (pre-feature tokens, test-generated tokens)
@@ -69,7 +106,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
         });
         return;
       }
-      next();
+      checkPasswordFlag();
     }).catch((error) => {
       logger.error('Session check error', { error: (error as Error).message });
       next();
@@ -77,7 +114,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
     return;
   }
 
-  next();
+  checkPasswordFlag();
 }
 
 export function optionalAuthMiddleware(req: Request, res: Response, next: NextFunction): void {

@@ -138,7 +138,8 @@ router.patch('/:id/password', rbacMiddleware('users.manage'), async (req: Reques
     const { password } = req.body;
     if (!password || password.length < 6) { res.status(400).json({ status: 400, detail: 'Password must be at least 6 characters' }); return; }
     const passwordHash = await hashPassword(password);
-    await prisma.user.updateMany({ where: { id: BigInt(req.params.id), tenantId: ctx.tenantId }, data: { passwordHash } });
+    // Admin-initiated reset: force the user to set their own password on next login.
+    await prisma.user.updateMany({ where: { id: BigInt(req.params.id), tenantId: ctx.tenantId }, data: { passwordHash, mustChangePassword: true } });
     res.json({ data: { message: 'Password updated' } });
   } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
 });

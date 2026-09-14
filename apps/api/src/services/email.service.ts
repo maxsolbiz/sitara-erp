@@ -20,7 +20,7 @@ function getTransporter(): nodemailer.Transporter | null {
 }
 
 const COMPANY_NAME = process.env.COMPANY_NAME || 'Sitara ERP';
-const FROM_EMAIL = process.env.MAIL_FROM || 'noreply@sitara.pk';
+const FROM_EMAIL = process.env.MAIL_FROM || 'noreply@sitarapurse.com';
 
 async function sendEmail(to: string, subject: string, html: string) {
   const t = getTransporter();
@@ -60,5 +60,16 @@ export async function sendSaleInvoiceEmail(to: string, data: { customerName: str
         <tr><td style="padding:8px;border:1px solid #e2e8f0">Total</td><td style="padding:8px;border:1px solid #e2e8f0">Rs. ${data.total.toLocaleString()}</td></tr>
       </table>
       <p>Thank you for your business.</p>
+    </div>`);
+}
+
+export async function sendPasswordResetEmail(to: string, data: { resetUrl: string; expiryMinutes: number }) {
+  await sendEmail(to, 'Password Reset Request', `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+      <h2 style="color:#0f172a">${COMPANY_NAME}</h2>
+      <h3>Password Reset</h3>
+      <p>Click the link below to reset your password. It expires in ${data.expiryMinutes} minutes and can only be used once:</p>
+      <p><a href="${data.resetUrl}">${data.resetUrl}</a></p>
+      <p>If you did not request this, you can safely ignore this email.</p>
     </div>`);
 }

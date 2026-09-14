@@ -84,6 +84,21 @@ export async function api<T = any>(
 
   const res = await fetch(url, { ...fetchOptions, headers });
 
+  // Forced password change: a 403 with this code means the account must set
+  // a new password first. Redirect (unless already there / already changing
+  // it) — the backend is the real gate; this just routes to the right screen.
+  // Only buffered on 403s, so normal requests pay nothing extra.
+  if (res.status === 403 && typeof window !== 'undefined'
+    && !url.includes('/auth/password') && !window.location.pathname.startsWith('/force-password')) {
+    try {
+      const probe: any = await res.clone().json().catch(() => null);
+      if (probe?.code === 'PASSWORD_CHANGE_REQUIRED') {
+        window.location.href = '/force-password';
+        return { ok: false, error: { status: 403, detail: 'Password change required' } } as any;
+      }
+    } catch { /* fall through to normal handling */ }
+  }
+
   if (res.status === 401 && token) {
     const refreshed = await refreshAccessToken();
     if (refreshed) {

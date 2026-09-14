@@ -30,6 +30,9 @@ const registerSchema = z.object({
   fullName: z.string().min(2).max(100),
 });
 
+const forgotSchema = z.object({ email: z.string().email() });
+const resetSchema = z.object({ token: z.string().min(10).max(255), newPassword: z.string().min(8).max(100) });
+
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
@@ -40,6 +43,17 @@ const refreshSchema = z.object({
 });
 
 router.post('/register', authRateLimitMiddleware(), validateMiddleware(registerSchema), async (req: Request, res: Response) => {
+  // Fail-closed: public self-registration is allowed only in development/test
+  // or with an explicit opt-in. An unset NODE_ENV is treated as closed —
+  // a misconfigured production box must never fall open.
+  const registrationOpen =
+    process.env.NODE_ENV === 'development' ||
+    process.env.NODE_ENV === 'test' ||
+    process.env.ALLOW_PUBLIC_REGISTRATION === 'true';
+  if (!registrationOpen) {
+    res.status(403).json({ status: 403, title: 'Forbidden', detail: 'Public registration is disabled' });
+    return;
+  }
   try {
     const { tenantName, slug, email, password, fullName } = req.body;
     const result = await authService.registerTenant(tenantName, slug, email, password, fullName);
@@ -104,6 +118,39 @@ router.post('/refresh', validateMiddleware(refreshSchema), async (req: Request, 
     }
     logger.error('Token refresh failed', { error: error.message });
     res.status(500).json({ status: 500, title: 'Internal Server Error', detail: 'Token refresh failed' });
+  }
+});
+
+// Public: request a password-reset link. Always returns success shape
+// (no user-enumeration oracle); rate-limited like login.
+router.post('/forgot-password', authRateLimitMiddleware(), validateMiddleware(forgotSchema), async (req: Request, res: Response) => {
+  try {
+    const result = await authService.requestPasswordReset(req.body.email, {
+      ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
+    });
+    res.json({ data: result });
+  } catch (error: any) {
+    logger.error('Forgot-password failed', { error: error.message });
+    res.status(500).json({ status: 500, title: 'Internal Server Error', detail: 'Request failed' });
+  }
+});
+
+// Public: consume a reset token (single-use, 1h expiry).
+router.post('/reset-password', authRateLimitMiddleware(), validateMiddleware(resetSchema), async (req: Request, res: Response) => {
+  try {
+    const result = await authService.resetPassword(req.body.token, req.body.newPassword);
+    res.json({ data: result });
+  } catch (error: any) {
+    if (error.message === 'INVALID_RESET_TOKEN') {
+      res.status(400).json({ status: 400, title: 'Bad Request', detail: 'Invalid or expired reset token' });
+      return;
+    }
+    if (error.message === 'WEAK_PASSWORD') {
+      res.status(400).json({ status: 400, title: 'Bad Request', detail: 'Password must be at least 8 characters' });
+      return;
+    }
+    logger.error('Reset-password failed', { error: error.message });
+    res.status(500).json({ status: 500, title: 'Internal Server Error', detail: 'Request failed' });
   }
 });
 
@@ -205,7 +252,7 @@ router.put('/password', authMiddleware, async (req: Request, res: Response) => {
     const valid = await verifyPassword(currentPassword, user.passwordHash);
     if (!valid) { res.status(400).json({ status: 400, detail: 'Current password is incorrect' }); return; }
     const passwordHash = await hashPassword(newPassword);
-    await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+    await prisma.user.update({ where: { id: userId }, data: { passwordHash, mustChangePassword: false } });
     // Invalidate all other sessions (deactivate rows so their tokens are rejected)
     await prisma.userSession.updateMany({ where: { userId, NOT: { id: BigInt(0) } }, data: { isActive: false } }).catch(() => {});
     res.json({ data: { message: 'Password changed' } });

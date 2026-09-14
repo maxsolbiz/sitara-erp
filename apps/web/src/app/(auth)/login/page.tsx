@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -70,14 +70,14 @@ export default function LoginPage() {
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? 'Signing in...' : 'Sign in'}
           </Button>
+          <p className="text-center text-sm">
+            <a href="/forgot-password" className="text-primary hover:underline">
+              Forgot password?
+            </a>
+          </p>
         </form>
       </CardContent>
-      <CardFooter className="justify-center text-sm text-muted-foreground">
-        Don&apos;t have an account?{' '}
-        <a href="/register" className="text-primary hover:underline ml-1">
-          Register
-        </a>
-      </CardFooter>
+      {/* Self-registration is disabled in production (backend gate) — no signup link. */}
     </Card>
   );
 }

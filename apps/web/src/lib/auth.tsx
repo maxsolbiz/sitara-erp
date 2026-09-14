@@ -86,6 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     localStorage.setItem('accessToken', res.data.accessToken);
     localStorage.setItem('refreshToken', res.data.refreshToken);
+    localStorage.setItem('lastEmail', email);
 
     const profileRes = await api<User>('/auth/me');
     if (profileRes.data) setUser(profileRes.data);

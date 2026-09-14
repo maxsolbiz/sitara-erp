@@ -1,6 +1,8 @@
 import prisma from '../lib/prisma';
+import crypto from 'crypto';
 import { hashPassword, verifyPassword, generateAccessToken, generateRefreshToken, verifyRefreshToken, verifyAccessToken } from '../utils/helpers';
 import { logActivity } from '../utils/activity';
+import { sendPasswordResetEmail } from './email.service';
 import { getRedis } from '../lib/redis';
 import logger from '../utils/logger';
 
@@ -369,6 +371,63 @@ export class AuthService {
     }
     // Tenant resolves from request context (logout route is authenticated).
     void logActivity({ userId, action: 'LOGOUT', entityType: 'user', entityId: userId, description: 'User logged out', ipAddress: meta?.ipAddress, userAgent: meta?.userAgent });
+  }
+  /**
+   * Request a password reset. Always succeeds silently from the caller's
+   * perspective (no user-enumeration oracle): unknown emails behave exactly
+   * like known ones. Token valid 1 hour, single-use.
+   */
+  async requestPasswordReset(email: string, meta?: { ipAddress?: string; userAgent?: string }) {
+    const user = await prisma.user.findFirst({ where: { email } });
+    if (user && user.isActive) {
+      const token = crypto.randomBytes(32).toString('hex');
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { resetToken: token, resetTokenExpiry: new Date(Date.now() + 60 * 60 * 1000) },
+      });
+      const base = process.env.FRONTEND_URL || 'https://app.sitarapurse.com';
+      const resetUrl = `${base}/reset-password?token=${token}`;
+      // Email may be unconfigured (no Resend/SMTP) — attempt, then always log
+      // server-side as interim fallback so the link is retrievable via SSH.
+      try {
+        await sendPasswordResetEmail(email, { resetUrl, expiryMinutes: 60 });
+      } catch (e: any) {
+        logger.warn('Password reset email failed', { error: e.message });
+      }
+      logger.info('Password reset link generated', { userId: user.id.toString(), resetUrl });
+      void logActivity({
+        tenantId: user.tenantId, userId: user.id, action: 'PASSWORD_RESET_REQUEST', entityType: 'user',
+        entityId: user.id, description: `Password reset requested for ${email}`,
+        ipAddress: meta?.ipAddress, userAgent: meta?.userAgent,
+      });
+    }
+    return { message: 'If an account exists for this email, a reset link has been sent' };
+  }
+
+  /** Consume a reset token (single-use, 1h expiry) and set a new password. */
+  async resetPassword(token: string, newPassword: string) {
+    if (!newPassword || newPassword.length < 8) throw new Error('WEAK_PASSWORD');
+    const user = await prisma.user.findFirst({ where: { resetToken: token } });
+    if (!user || !user.resetTokenExpiry || user.resetTokenExpiry.getTime() < Date.now()) {
+      throw new Error('INVALID_RESET_TOKEN');
+    }
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash: await hashPassword(newPassword),
+        resetToken: null, resetTokenExpiry: null,
+        mustChangePassword: false, loginAttempts: 0, lockedUntil: null,
+      },
+    });
+    // Kill all sessions — a reset implies possible compromise
+    await prisma.userSession.updateMany({ where: { userId: user.id }, data: { isActive: false } }).catch(() => {});
+    const redis = getRedis();
+    await redis.del(`refresh:${user.id}`).catch(() => {});
+    void logActivity({
+      tenantId: user.tenantId, userId: user.id, action: 'PASSWORD_RESET_COMPLETE', entityType: 'user',
+      entityId: user.id, description: `Password reset completed for ${user.email}`,
+    });
+    return { message: 'Password has been reset' };
   }
 }
 
