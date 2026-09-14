@@ -14,7 +14,10 @@ test.describe('POS walk-in + core flow', () => {
     await expect(gridBtn).toBeVisible({ timeout: 15000 });
     const prodName = (await gridBtn.innerText()).split('\n')[1];
     await gridBtn.click();
-    await expect(page.getByText('Cart is empty')).toHaveCount(0);
+    // Cart updates async — poll instead of asserting a single instant
+    await expect(async () => {
+      expect(await page.getByText('Cart is empty').count()).toBe(0);
+    }).toPass({ timeout: 10000 });
     await page.screenshot({ path: 'apps/web/e2e/screenshots/pos-cart.png' });
     // Walk-in should be preselected (green customer badge shows fullName)
     await expect(page.getByText('Walk-in Customer').first()).toBeVisible({ timeout: 10000 });

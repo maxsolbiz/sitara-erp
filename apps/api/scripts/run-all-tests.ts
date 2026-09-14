@@ -24,12 +24,15 @@ const SUITES = [
   'product-test',
   'pos-test',
   'public-test',
+  'activity-helper-test',
   // Need a live API server (hit localhost:3000 concurrently); the
   // orchestrator starts/stops it automatically — see runWithLiveServer.
   // Depends on seeded users (admin@demo.com, manager@test.com).
   'tenant-isolation-test',
   // Same live-server requirement (login/terminate/refresh flows).
   'session-tracking-test',
+  // Same live-server requirement (performs real mutations, then reads back).
+  'activity-log-test',
 ];
 
 function run(file: string): { pass: number; fail: number; crashed: boolean } {
@@ -105,7 +108,7 @@ async function main() {
   for (const s of SUITES) {
     // pos-test asserts absolute stock levels — always start it from a fresh seed.
     if (s === 'auth-test' || s === 'pos-test') setup();
-    if (s === 'tenant-isolation-test' || s === 'session-tracking-test') {
+    if (s === 'tenant-isolation-test' || s === 'session-tracking-test' || s === 'activity-log-test') {
       if (!liveServer) {
         console.log('(starting live API server for live-server tests)');
         liveServer = await startLiveServer();

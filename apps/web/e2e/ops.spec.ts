@@ -65,25 +65,22 @@ test.describe('PART C — backup & restore', () => {
 });
 
 test.describe('PART D — activity log + sessions', () => {
-  test('activity viewer renders truthfully (table empty: zero producers in codebase)', async ({ page }) => {
+  test('activity viewer shows real logged actions (producers now wired)', async ({ page }) => {
     const errs: string[] = [];
     page.on('pageerror', (e) => errs.push(String(e).slice(0, 200)));
     await login(page, 'admin@demo.com', 'admin123');
-    // Perform a distinctive action via API
-    const uniq = `E2EAct${Date.now().toString().slice(-6)}`;
-    await api(page, 'POST', '/customers', { fullName: uniq, phone: `0399-${Date.now().toString().slice(-7)}`, creditLimit: 0 });
+    // This very login writes a LOGIN row — the viewer must show real data now
+    // (previously asserted the honest empty state; producers exist since).
     await page.goto('/activity');
     await expect(page.locator('table').first()).toBeVisible({ timeout: 20000 });
+    await expect(async () => {
+      const bodyText = await page.locator('body').innerText();
+      expect(bodyText).toContain('LOGIN');
+    }).toPass({ timeout: 15000 });
     const bodyText = await page.locator('body').innerText();
-    // Verified separately: no code path in apps/api/src writes activityLog
-    // (grep: zero activityLog.create calls) — so the table is ALWAYS empty.
-    // The honest UI state is the empty message, not a crash.
-    console.log(`ACTIVITY_HAS_ENTRY=${bodyText.includes(uniq)} EMPTY_STATE=${bodyText.includes('No activity found')}`);
-    expect(bodyText).toContain('No activity found');
+    console.log(`ACTIVITY_HAS_LOGIN=${bodyText.includes('LOGIN')} EMPTY_STATE=${bodyText.includes('No activity found')}`);
+    expect(bodyText).not.toContain('No activity found');
     await page.screenshot({ path: 'apps/web/e2e/screenshots/activity-log.png' });
-    // Cleanup the probe customer
-    const found = ((await api(page, 'GET', `/customers?search=${uniq}`)).body?.data || [])[0];
-    if (found) await api(page, 'DELETE', `/customers/${found.id}`);
     expect(errs).toEqual([]);
   });
 
