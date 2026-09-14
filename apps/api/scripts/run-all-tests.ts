@@ -24,10 +24,12 @@ const SUITES = [
   'product-test',
   'pos-test',
   'public-test',
-  // Needs a live API server (hits localhost:3000 concurrently); the
+  // Need a live API server (hit localhost:3000 concurrently); the
   // orchestrator starts/stops it automatically — see runWithLiveServer.
   // Depends on seeded users (admin@demo.com, manager@test.com).
   'tenant-isolation-test',
+  // Same live-server requirement (login/terminate/refresh flows).
+  'session-tracking-test',
 ];
 
 function run(file: string): { pass: number; fail: number; crashed: boolean } {
@@ -62,26 +64,26 @@ async function waitForPort(url: string, tries = 40): Promise<boolean> {
   return false;
 }
 
-/** Start a live API server, run `fn`, then always stop the server. */
-async function runWithLiveServer<T>(fn: () => T): Promise<T> {
+/** Start a live API server; caller must stop it via the returned handle. */
+async function startLiveServer(): Promise<ChildProcess> {
   const proc: ChildProcess = spawn(
     process.execPath,
     [TSX_CLI, '--env-file=.env', 'apps/api/src/index.ts'],
     { cwd: ROOT, stdio: 'ignore', detached: false }
   );
-  try {
-    const up = await waitForPort('http://localhost:3000/api/v1/health');
-    if (!up) throw new Error('live API server did not start');
-    return await fn();
-  } finally {
+  const up = await waitForPort('http://localhost:3000/api/v1/health');
+  if (!up) {
     proc.kill();
+    throw new Error('live API server did not start');
   }
+  return proc;
 }
 
 async function main() {
   console.log('=== Full Suite ===\n');
   const rows: { file: string; pass: number; fail: number; note: string }[] = [];
   let failed = false;
+  let liveServer: ChildProcess | null = null;
 
   const runOne = (s: string) => {
     try {
@@ -103,9 +105,12 @@ async function main() {
   for (const s of SUITES) {
     // pos-test asserts absolute stock levels — always start it from a fresh seed.
     if (s === 'auth-test' || s === 'pos-test') setup();
-    if (s === 'tenant-isolation-test') {
-      console.log('(starting live API server for isolation test)');
-      await runWithLiveServer(() => runOne(s));
+    if (s === 'tenant-isolation-test' || s === 'session-tracking-test') {
+      if (!liveServer) {
+        console.log('(starting live API server for live-server tests)');
+        liveServer = await startLiveServer();
+      }
+      runOne(s);
       continue;
     }
     runOne(s);
@@ -113,6 +118,7 @@ async function main() {
 
   console.log('\n--- Summary ---');
   for (const r of rows) console.log(`${r.file} | pass=${r.pass} | fail=${r.fail} | ${r.note}`);
+  if (liveServer) liveServer.kill();
   process.exit(failed ? 1 : 0);
 }
 

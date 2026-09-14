@@ -1,5 +1,5 @@
 import prisma from '../lib/prisma';
-import { hashPassword, verifyPassword, generateAccessToken, generateRefreshToken, verifyRefreshToken } from '../utils/helpers';
+import { hashPassword, verifyPassword, generateAccessToken, generateRefreshToken, verifyRefreshToken, verifyAccessToken } from '../utils/helpers';
 import { getRedis } from '../lib/redis';
 import logger from '../utils/logger';
 
@@ -177,7 +177,7 @@ export class AuthService {
     return { tenant, user };
   }
 
-  async login(email: string, password: string) {
+  async login(email: string, password: string, meta?: { ipAddress?: string; userAgent?: string }) {
     const user = await prisma.user.findFirst({
       where: { email },
       include: { tenant: { select: { id: true, name: true, slug: true, status: true } } },
@@ -242,6 +242,30 @@ export class AuthService {
       7 * 24 * 60 * 60
     );
 
+    // Session tracking (additive): record this login so the Active Sessions
+    // list and terminate endpoint have real rows. Must never break login —
+    // a failed insert only logs a warning. Not enforced anywhere yet.
+    try {
+      const decoded = verifyAccessToken(accessToken);
+      if (decoded?.jti) {
+        await prisma.userSession.create({
+          data: {
+            tenantId: user.tenantId,
+            userId: user.id,
+            sessionToken: decoded.jti,
+            ipAddress: meta?.ipAddress || '',
+            userAgent: meta?.userAgent || '',
+            // Derived from the actual token exp claim — never a hardcoded TTL,
+            // so JWT_EXPIRES_IN changes can't desync row vs token lifetimes.
+            expiresAt: decoded.exp ? new Date(decoded.exp * 1000) : new Date(Date.now() + 15 * 60 * 1000),
+            isActive: true,
+          },
+        });
+      }
+    } catch (e: any) {
+      logger.warn('Session row creation failed (login still succeeds)', { error: e.message });
+    }
+
     return {
       accessToken,
       refreshToken,
@@ -276,6 +300,20 @@ export class AuthService {
       throw new Error('USER_INACTIVE');
     }
 
+    // A refresh must never resurrect a terminated session: only rotate a
+    // session row that is still active. No active rows → the session was
+    // terminated (or never tracked) → refuse, forcing a fresh login.
+    // Most-recent-active wins because refresh tokens are single-slot per
+    // user (refresh:{userId}) — only one refresh token is valid at a time.
+    const activeRow = await prisma.userSession.findFirst({
+      where: { userId: user.id, isActive: true },
+      orderBy: { startedAt: 'desc' },
+      select: { id: true },
+    });
+    if (!activeRow) {
+      throw new Error('INVALID_REFRESH_TOKEN');
+    }
+
     const newAccessToken = generateAccessToken({
       userId: user.id,
       tenantId: user.tenantId,
@@ -294,12 +332,35 @@ export class AuthService {
       7 * 24 * 60 * 60
     );
 
+    // Rotate the session row onto the new access-token jti so the row keeps
+    // tracking the live token. Must not break refresh — warn only on failure.
+    try {
+      const decoded = verifyAccessToken(newAccessToken);
+      if (decoded?.jti) {
+        await prisma.userSession.update({
+          where: { id: activeRow.id },
+          data: {
+            sessionToken: decoded.jti,
+            expiresAt: decoded.exp ? new Date(decoded.exp * 1000) : new Date(Date.now() + 15 * 60 * 1000),
+            lastActivity: new Date(),
+          },
+        });
+      }
+    } catch (e: any) {
+      logger.warn('Session row rotation failed (refresh still succeeds)', { error: e.message });
+    }
+
     return { accessToken: newAccessToken, refreshToken: newRefreshToken };
   }
 
-  async logout(userId: bigint) {
+  async logout(userId: bigint, jti?: string) {
     const redis = getRedis();
     await redis.del(`refresh:${userId}`);
+    // Deactivate this session's row so the access token is rejected going
+    // forward (rowless/legacy tokens keep working — see authMiddleware).
+    if (jti) {
+      await prisma.userSession.updateMany({ where: { sessionToken: jti, userId }, data: { isActive: false } }).catch(() => {});
+    }
   }
 }
 

@@ -7,6 +7,7 @@ import { authMiddleware } from '../middleware/auth';
 import { validateMiddleware } from '../middleware/validate';
 import { authRateLimitMiddleware } from '../middleware/rateLimit';
 import { hashPassword, verifyPassword, parseIdParam } from '../utils/helpers';
+import { getRedis } from '../lib/redis';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -67,7 +68,10 @@ router.post('/register', authRateLimitMiddleware(), validateMiddleware(registerS
 router.post('/login', authRateLimitMiddleware(), validateMiddleware(loginSchema), async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
-    const result = await authService.login(email, password);
+    const result = await authService.login(email, password, {
+      ipAddress: req.ip || (req.socket?.remoteAddress as string) || '',
+      userAgent: (req.headers['user-agent'] as string) || '',
+    });
 
     res.json({ data: result });
   } catch (error: any) {
@@ -106,7 +110,7 @@ router.post('/refresh', validateMiddleware(refreshSchema), async (req: Request, 
 router.post('/logout', authMiddleware, async (req: Request, res: Response) => {
   try {
     if (req.user) {
-      await authService.logout(BigInt(req.user.userId));
+      await authService.logout(BigInt(req.user.userId), req.user.jti);
     }
     res.json({ data: { message: 'Logged out successfully' } });
   } catch (error: any) {
@@ -199,8 +203,8 @@ router.put('/password', authMiddleware, async (req: Request, res: Response) => {
     if (!valid) { res.status(400).json({ status: 400, detail: 'Current password is incorrect' }); return; }
     const passwordHash = await hashPassword(newPassword);
     await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
-    // Invalidate all other sessions
-    await prisma.userSession.deleteMany({ where: { userId, NOT: { id: BigInt(0) } } }).catch(() => {});
+    // Invalidate all other sessions (deactivate rows so their tokens are rejected)
+    await prisma.userSession.updateMany({ where: { userId, NOT: { id: BigInt(0) } }, data: { isActive: false } }).catch(() => {});
     res.json({ data: { message: 'Password changed' } });
   } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
 });
@@ -208,7 +212,7 @@ router.put('/password', authMiddleware, async (req: Request, res: Response) => {
 router.get('/sessions', authMiddleware, async (req: Request, res: Response) => {
   try {
     const userId = BigInt(req.user!.userId);
-    const sessions = await prisma.userSession.findMany({ where: { userId }, orderBy: { lastActivity: 'desc' }, take: 50 });
+    const sessions = await prisma.userSession.findMany({ where: { userId, isActive: true }, orderBy: { lastActivity: 'desc' }, take: 50 });
     res.json({ data: sessions.map((s) => ({ id: s.id.toString(), ipAddress: s.ipAddress, userAgent: s.userAgent, startedAt: s.startedAt, lastActivity: s.lastActivity })) });
   } catch { res.json({ data: [] }); }
 });
@@ -219,7 +223,19 @@ router.delete('/sessions/:id', authMiddleware, async (req: Request, res: Respons
     const sessionId = BigInt(req.params.id);
     const session = await prisma.userSession.findFirst({ where: { id: sessionId, userId } });
     if (!session) { res.status(404).json({ status: 404 }); return; }
-    await prisma.userSession.delete({ where: { id: sessionId } });
+    // Deactivate (not hard-delete): preserves history and keeps the row as
+    // the revocation record authMiddleware checks. List endpoint filters active.
+    // If this session held the single-slot refresh token (most recent login),
+    // also kill refresh so termination can't be bypassed via /auth/refresh.
+    const latest = await prisma.userSession.findFirst({
+      where: { userId, isActive: true },
+      orderBy: { startedAt: 'desc' },
+      select: { id: true },
+    });
+    await prisma.userSession.update({ where: { id: sessionId }, data: { isActive: false } });
+    if (latest && latest.id === sessionId) {
+      await getRedis().del(`refresh:${userId}`).catch(() => {});
+    }
     res.json({ data: { message: 'Session terminated' } });
   } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
 });

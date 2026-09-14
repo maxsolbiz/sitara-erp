@@ -45,11 +45,25 @@ test.describe('POS walk-in + core flow', () => {
     await login(page, 'e2eviewer@demo.com', 'e2eviewer123');
     await page.goto('/pos');
     await expect(page.getByPlaceholder('Scan barcode or search... (F1)')).toBeVisible({ timeout: 20000 });
-    const gridBtn = page.locator('div.grid button:not([disabled])').first();
-    const btnText = await gridBtn.innerText();
-    const prodName = (btnText.split('\n')[1] || '').trim();
-    // Stock badge is the last line of the grid button text
-    const badgeStock = parseInt((btnText.split('\n').pop() || '').trim(), 10);
+    // Pick a product with enough stock to hammer the + button (skip depleted ones;
+    // repeated suite runs consume demo stock, so the first grid item may be at 0)
+    const gridButtons = page.locator('div.grid button:not([disabled])');
+    const n = await gridButtons.count();
+    let picked = -1;
+    let badgeStock = 0;
+    let prodName = '';
+    for (let i = 0; i < n; i++) {
+      const t = ((await gridButtons.nth(i).innerText()).split('\n') || []).map((s) => s.trim());
+      const badge = parseInt(t[t.length - 1] || '', 10);
+      if (Number.isFinite(badge) && badge >= 20) {
+        picked = i;
+        badgeStock = badge;
+        prodName = t[1] || '';
+        break;
+      }
+    }
+    if (picked < 0) throw new Error('no product with stock >= 20 for overstock test');
+    const gridBtn = gridButtons.nth(picked);
     await gridBtn.click();
     // Scope + to the cart row (header also has a Plus icon — do not match it)
     const row = page.locator('div.flex.items-center.gap-2.rounded-lg.border', { hasText: prodName.slice(0, 20) });

@@ -13,7 +13,7 @@ export function verifyPassword(password: string, hash: string): Promise<boolean>
 
 export function generateAccessToken(payload: { userId: bigint; tenantId: bigint; tenantSlug: string }): string {
   return jwt.sign(
-    { sub: payload.userId.toString(), tid: payload.tenantId.toString(), slug: payload.tenantSlug },
+    { sub: payload.userId.toString(), tid: payload.tenantId.toString(), slug: payload.tenantSlug, jti: uuidv4() },
     config.jwt.secret,
     { expiresIn: config.jwt.expiresIn as any }
   );
@@ -27,10 +27,10 @@ export function generateRefreshToken(payload: { userId: bigint; tenantId: bigint
   );
 }
 
-export function verifyAccessToken(token: string): { userId: string; tenantId: string; tenantSlug: string } | null {
+export function verifyAccessToken(token: string): { userId: string; tenantId: string; tenantSlug: string; jti?: string; exp?: number } | null {
   try {
     const decoded = jwt.verify(token, config.jwt.secret) as any;
-    return { userId: decoded.sub, tenantId: decoded.tid, tenantSlug: decoded.slug };
+    return { userId: decoded.sub, tenantId: decoded.tid, tenantSlug: decoded.slug, jti: decoded.jti, exp: decoded.exp };
   } catch {
     return null;
   }
