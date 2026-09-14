@@ -5,6 +5,7 @@ import { inventoryService } from '../services/inventory.service';
 import { rbacMiddleware } from '../middleware/rbac';
 import { ACCOUNT_CODES } from '../constants/accounts';
 import { parseIdParam } from '../utils/helpers';
+import { logActivity } from '../utils/activity';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -267,6 +268,17 @@ router.post('/transfers', rbacMiddleware('inventory.transfer'), async (req: Requ
       return transfer;
     });
     logger.info('Stock transfer completed', { transferNumber, items: items.length, tenantId: tenantId.toString() });
+    void logActivity({
+      tenantId, userId: req.user ? BigInt(req.user.userId) : undefined,
+      action: 'STOCK_TRANSFER', entityType: 'stock_transfer', entityId: result.id,
+      description: `Transfer ${transferNumber} completed: ${items.length} item(s) from ${fromWh.name} to ${toWh.name}`,
+      newValues: {
+        transferNumber, fromWarehouseId, toWarehouseId,
+        fromWarehouse: fromWh.name, toWarehouse: toWh.name,
+        items: items.map((i: any) => ({ productId: i.productId, quantity: i.quantity })),
+      },
+      ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
+    });
     res.status(201).json({ data: { id: result.id.toString(), transferNumber: result.transferNumber, itemCount: items.length } });
   } catch (error: any) {
     res.status(400).json({ status: 400, detail: error.message });

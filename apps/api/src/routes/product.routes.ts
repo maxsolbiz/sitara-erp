@@ -8,6 +8,7 @@ import { productService } from '../services/product.service';
 import { validateMiddleware } from '../middleware/validate';
 import { rbacMiddleware } from '../middleware/rbac';
 import { generateSku, parseIdParam } from '../utils/helpers';
+import { logActivity } from '../utils/activity';
 import logger from '../utils/logger';
 import PDFDocument from 'pdfkit';
 
@@ -496,7 +497,33 @@ router.post('/', rbacMiddleware('products.create'), validateMiddleware(productSc
 });
 
 router.put('/:id', rbacMiddleware('products.update'), async (req: Request, res: Response) => {
-  try { const result = await productService.update(BigInt(req.params.id), req.body); res.json({ data: result }); }
+  try {
+    // Capture pre-update prices so only actual price changes get logged
+    // (a name/description edit is not price-audit-worthy).
+    const before = await productService.getById(BigInt(req.params.id)).catch(() => null);
+    const result = await productService.update(BigInt(req.params.id), req.body);
+    const changed: Record<string, { from: number; to: number }> = {};
+    if (req.body.sellingPrice !== undefined && before && Number(before.sellingPrice) !== Number(req.body.sellingPrice)) {
+      changed.sellingPrice = { from: Number(before.sellingPrice), to: Number(req.body.sellingPrice) };
+    }
+    if (req.body.costPrice !== undefined && before && Number(before.costPrice) !== Number(req.body.costPrice)) {
+      changed.costPrice = { from: Number(before.costPrice), to: Number(req.body.costPrice) };
+    }
+    if (Object.keys(changed).length > 0) {
+      const ctx = getTenantContext();
+      if (ctx) {
+        void logActivity({
+          tenantId: ctx.tenantId, userId: req.user ? BigInt(req.user.userId) : undefined,
+          action: 'PRODUCT_PRICE_CHANGE', entityType: 'product', entityId: BigInt(req.params.id),
+          description: `Price changed for ${before?.name || req.params.id}`,
+          oldValues: Object.fromEntries(Object.entries(changed).map(([k, v]: any) => [k, v.from])),
+          newValues: Object.fromEntries(Object.entries(changed).map(([k, v]: any) => [k, v.to])),
+          ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
+        });
+      }
+    }
+    res.json({ data: result });
+  }
   catch (e: any) { res.status(500).json({ status: 500, detail: e.message }); }
 });
 
