@@ -60,8 +60,9 @@ curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3104/
 
 ## 7. Apache vhosts HTTP-only (⚠️ touches shared Apache config — reload only, no restarts of other sites)
 ```bash
-cp /root/sitara/deploy/vps/apache-app.sitarapurse.com.conf /etc/apache2/sites-available/
-cp /root/sitara/deploy/vps/apache-api.sitarapurse.com.conf /etc/apache2/sites-available/
+# NOTE: repo files carry an apache- prefix; strip it on copy so a2ensite finds them.
+cp /root/sitara/deploy/vps/apache-app.sitarapurse.com.conf /etc/apache2/sites-available/app.sitarapurse.com.conf
+cp /root/sitara/deploy/vps/apache-api.sitarapurse.com.conf /etc/apache2/sites-available/api.sitarapurse.com.conf
 a2ensite app.sitarapurse.com api.sitarapurse.com
 apache2ctl configtest   # MUST say "Syntax OK" before reload
 systemctl reload apache2
