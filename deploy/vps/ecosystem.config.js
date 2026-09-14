@@ -41,7 +41,8 @@ module.exports = {
     {
       name: 'sitara-web',
       cwd: '/root/sitara/apps/web',
-      script: 'node_modules/next/dist/bin/next',
+      // NOTE: npm workspaces hoist next to the repo root — NOT apps/web/node_modules.
+      script: '/root/sitara/node_modules/next/dist/bin/next',
       args: 'start -H 127.0.0.1 -p 3104',
       instances: 1,
       exec_mode: 'fork',
