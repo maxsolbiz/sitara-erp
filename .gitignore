@@ -28,8 +28,7 @@ Thumbs.db
 *.log
 logs/
 
-# Prisma
-apps/api/prisma/migrations/
+# Prisma (migrations MUST be committed — deploys run `migrate deploy` from them)
 
 # Docker
 docker/data/
