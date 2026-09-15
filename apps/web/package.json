@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "check:theme-color": "tsx scripts/check-metadata-theme-color.ts"
   },
   "dependencies": {
     "@radix-ui/react-avatar": "^1.2.0",
