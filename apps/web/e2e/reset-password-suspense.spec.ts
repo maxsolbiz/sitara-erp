@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { login } from '../helpers';
+import { login } from './helpers';
 
 test.describe('reset-password Suspense boundary guard', () => {
   test('page renders without client-side exception when Suspense boundary is present', async ({ page }) => {
