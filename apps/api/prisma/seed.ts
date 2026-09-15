@@ -61,6 +61,22 @@ const DEFAULT_ROLES = [
       'customers.view', 'vendors.view',
     ],
   },
+  {
+    // Scoped e2e fixture (used by costprice + pos specs): product browsing
+    // without cost data, walk-in POS sales. Only what the tests assert —
+    // deliberately no products.export/create/update/delete/import and no
+    // hold/void/returns/close, so the tests stay a meaningful signal.
+    name: 'Viewer',
+    slug: 'viewer',
+    description: 'E2E fixture: browse products (no cost data), walk-in POS sales',
+    permissions: [
+      'products.view',
+      'pos.access',
+      'pos.sales.create',
+      'sales.view',
+      'customers.view',
+    ],
+  },
 ];
 
 const DEFAULT_CHART_OF_ACCOUNTS = [
@@ -180,6 +196,46 @@ async function main() {
       where: { userId_roleId: { userId: adminUser.id, roleId: adminRoleId } },
       update: {},
       create: { userId: adminUser.id, roleId: adminRoleId },
+    });
+  }
+
+  // E2E fixture account (costprice + pos specs log in as this user).
+  // Upsert unconditionally resets it to known-good state, so a failed
+  // test run can never leave it poisoned (wrong hash, must-change flag,
+  // lockout) for the next run.
+  const viewerPassword = await bcrypt.hash('e2eviewer123', 12);
+  const viewerUser = await prisma.user.upsert({
+    where: { tenantId_username: { tenantId: tenant.id, username: 'e2eviewer' } },
+    update: {
+      email: 'e2eviewer@demo.com',
+      passwordHash: viewerPassword,
+      fullName: 'E2E Viewer',
+      isActive: true,
+      status: 'active',
+      mustChangePassword: false,
+      loginAttempts: 0,
+      lockedUntil: null,
+    },
+    create: {
+      tenantId: tenant.id,
+      username: 'e2eviewer',
+      email: 'e2eviewer@demo.com',
+      passwordHash: viewerPassword,
+      fullName: 'E2E Viewer',
+      isSuperAdmin: false,
+      isActive: true,
+      status: 'active',
+      mustChangePassword: false,
+    },
+  });
+  console.log(`Viewer user: ${viewerUser.email}`);
+
+  const viewerRoleId = roleRecords['viewer'];
+  if (viewerRoleId) {
+    await prisma.roleUser.upsert({
+      where: { userId_roleId: { userId: viewerUser.id, roleId: viewerRoleId } },
+      update: {},
+      create: { userId: viewerUser.id, roleId: viewerRoleId },
     });
   }
 

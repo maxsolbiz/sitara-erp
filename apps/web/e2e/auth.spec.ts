@@ -27,6 +27,45 @@ async function api(page: any, method: string, path: string, body?: any, token?: 
 }
 
 test.describe('forced password change (UI)', () => {
+  test.afterEach(async ({ page }) => {
+    // Restore the viewer fixture even if the test body threw mid-flow
+    // (e.g. after the temp-password change but before the inline restore).
+    // Admin PATCH resets the hash but sets must_change_password, so the
+    // flag is cleared via viewer self-change, mirroring the test body.
+    await login(page, 'admin@demo.com', 'admin123');
+    // Retry: bursts of dashboard polling can trip the 60s rate-limit
+    // window; a failed lookup must fail loudly, never silently skip.
+    let viewer: any = null;
+    for (let i = 0; i < 8 && !viewer; i++) {
+      const usersList: any = await api(page, 'GET', '/users');
+      viewer = ((usersList.body?.data || []) as any[]).find((u: any) => u.email === 'e2eviewer@demo.com');
+      if (!viewer) await page.waitForTimeout(10000);
+    }
+    if (!viewer) throw new Error('afterEach: e2eviewer user missing, cannot restore');
+    for (let i = 0; i < 8; i++) {
+      const r: any = await api(page, 'PATCH', `/users/${viewer.id}/password`, { password: 'e2eviewer123' });
+      if (r.status === 200) break;
+      if (i === 7) throw new Error('afterEach: admin PATCH failed with status ' + r.status);
+      await page.waitForTimeout(10000);
+    }
+    await page.evaluate(() => { localStorage.clear(); });
+    await page.goto('/login');
+    await page.locator('#email').fill('e2eviewer@demo.com');
+    await page.locator('#password').fill('e2eviewer123');
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    const forced = await page.waitForURL('**/force-password', { timeout: 30000 }).then(() => true).catch(() => false);
+    if (forced) {
+      await expect(page.getByText('Set a New Password')).toBeVisible({ timeout: 15000 });
+      await page.locator('#current').fill('e2eviewer123');
+      await page.locator('#password').fill('e2eviewer123');
+      await page.locator('#confirm').fill('e2eviewer123');
+      await page.getByRole('button', { name: 'Set Password & Continue' }).click();
+      await page.waitForURL('**/dashboard', { timeout: 90000 });
+    } else {
+      await page.waitForURL('**/dashboard', { timeout: 90000 });
+    }
+  });
+
   test('flagged user is routed to force-password, changes, regains access', async ({ page }) => {
     const errs: string[] = [];
     page.on('pageerror', (e) => errs.push(String(e).slice(0, 200)));
