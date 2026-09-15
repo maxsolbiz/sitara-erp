@@ -38,7 +38,7 @@ app.use((_req, _res, next) => runWithTenantContext(null, next));
 
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({
-  origin: config.nodeEnv === 'development' ? '*' : [/\.sitara\.pk$/, /^https:\/\/app\.sitara\./],
+  origin: config.nodeEnv === 'development' ? '*' : [/\.sitarapurse\.com$/, /\.sitara\.pk$/, /^https:\/\/app\.sitara\./],
   credentials: true,
 }));
 app.use(compression());
