@@ -127,19 +127,31 @@ D:\SasS/
 
 ## Module Status Summary
 
-| Module | Completion | Key Features |
-|--------|-----------|--------------|
-| Auth | 90% | Login, register, JWT, RBAC, tenant isolation |
-| POS | 75% | Checkout, held sales, returns, discounts, FIFO, balanced JEs, keyboard shortcuts |
-| Products | 60% | CRUD, search, categories, detail, edit |
-| Customers | 65% | CRUD, search, credit tracking |
-| Vendors | 60% | CRUD, search |
-| Purchases | 35% | PO create/list/detail. Missing: receiving, stock update, returns |
-| Accounting | 65% | CoA, JE, Trial Balance, P&L, Balance Sheet |
-| Inventory | 55% | Stock view, movements, warehouses |
-| Reports | 5% | All stubs — no real data |
-| Settings | 15% | UI only, no persistence |
-| **Overall** | **39%** | See `PARITY_AUDIT_REPORT.md` for full gap analysis |
+> Updated 2026-09-15 after a from-scratch verification: fresh clone + fresh DB (`migrate deploy` 19/19 clean) + cold full suite green (12 passed, exit 0). Replaces the stale June snapshot below. See `FINAL_PARITY_AUDIT.md` for the last full parity pass — findings here are what was literally re-verified.
+
+| Module | Status | Evidence |
+|--------|--------|----------|
+| Auth | ✅ Verified | login/JWT/RBAC/sessions green in e2e; `user_sessions` rows confirmed live; forced-password + forgot flows pass |
+| POS | ✅ Verified | walk-in/empty-cart/overstock green incl. receipt + FIFO stock moves |
+| Products | ✅ Verified | detail + costPrice contract green (admin sees, viewer role hidden, API-stripped) |
+| Inventory | ✅ Verified | stock transfers green (exact movement + overstock 400) |
+| Backups | ✅ Verified | backup → download → validate-wizard green in e2e (after the `tenant_id` migration fix) |
+| Accounting | ✅ Present | routes guarded (12 inline RBAC); trial balance/P&L per `FINAL_PARITY_AUDIT.md` (90%) — not functionally re-run |
+| Customers | ✅ Present | routes guarded (16 inline RBAC); CRUD per audit docs — not functionally re-run |
+| Vendors | ✅ Present | routes guarded (14 inline RBAC); CRUD per audit docs — not functionally re-run |
+| Purchases | ✅ Present | routes guarded (14 inline RBAC); receiving/stock/journal per later work — not functionally re-run |
+| Reports | ✅ Verified | sales/inventory/stock-valuation return 200 with real non-zero data (e.g. revenue 5500, 44 batches valued); full aggregation service, not stubs |
+| Settings | ✅ Verified | PUT → GET round-trip persists (`company_phone` change survived reload; restored after test) |
+
+**Fixed since audit (2026-09-15, all verified with literal output):**
+- Tenant isolation enforcement: the Prisma `$extends` auto-scoping hook cannot see `AsyncLocalStorage` context at runtime (proven: `getTenantContext()` returns null inside `$allOperations`; ghost-tenant and real-tenant queries returned identical rows). A live cross-tenant attack pre-fix returned HTTP 200 plus a real restore token for another tenant's backup. Fixed by explicit `tenantId` scoping at every bare-id call site (backup validate/download/restore, POS customer/product reads, role assignment, trial-balance FY filter) plus a 7-test cross-tenant negative suite (`apps/web/e2e/tenant-isolation.spec.ts`, green) and an allowlist CI guard (`npm run check:tenant-scope`). Residual caveat: the extension itself is still blind — enforcement lives at the call sites, and a structural fix (making the extension ALS-safe) was evaluated and deferred as higher-risk than explicit scoping.
+- Web typecheck: `e2e/reset-password-suspense.spec.ts` imported `../helpers` instead of `./helpers`; fixed, `tsc --noEmit` clean, spec still green.
+
+**Known issues — pre-launch decisions (open, not resolved):**
+- Public QR receipt endpoint (`GET /api/v1/public/receipts/:id` via `publicReceiptHandler`, `sale.routes.ts` ~line 341): bare sequential numeric ID, no auth, exposes customer full name and completed/cancelled sale line items to anyone who walks IDs. Two options, decide before `DEPLOY_PLAN.md` executes: (a) harden with an unguessable token/slug instead of the sequential id, or (b) consciously accept enumerable-PII risk for launch and document why. The `check-tenant-scope` allowlist entry describes current behavior only — it is not an approval.
+- Doc hygiene: `FINAL_PARITY_AUDIT.md` disagrees with itself (62% overall in one section, ~88% in another). This table's evidence-graded rows are the source of truth over any single percentage; reconcile or retire the old audit percentages separately.
+
+**Overall:** ✅ all test-covered paths green (12/12 e2e cold, twice consecutively with no reseed); ✅ Reports/Settings functionally confirmed this session.
 
 ---
 
