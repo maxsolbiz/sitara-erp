@@ -29,6 +29,12 @@ import { startCurrencySync } from './services/currency.service';
 
 const app = express();
 
+// Trust ONLY the loopback reverse proxy (Apache on this box) so req.ip
+// reflects the X-Forwarded-For client instead of 127.0.0.1. Without this,
+// every visitor shares one address and the per-IP rate limiter throttles
+// the whole world as a single user. 'loopback' never trusts external hops.
+app.set('trust proxy', 'loopback');
+
 // Per-request tenant isolation boundary. Must be the FIRST middleware so the
 // AsyncLocalStorage store is established before anything downstream runs —
 // auth.ts / tenant.ts populate it via setTenantContext(), and all 222
