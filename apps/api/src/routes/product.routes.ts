@@ -287,6 +287,8 @@ router.put('/bundles/:id', rbacMiddleware('products.update'), async (req: Reques
     if (name !== undefined) data.name = name;
     if (sellingPrice !== undefined) data.sellingPrice = sellingPrice;
     if (description !== undefined) data.description = description;
+    const bundleCheck = await prisma.productBundle.findFirst({ where: { id: BigInt(req.params.id), tenantId: ctx.tenantId }, select: { id: true } });
+    if (!bundleCheck) { res.status(404).json({ status: 404, detail: 'Bundle not found' }); return; }
     await prisma.$transaction(async (tx: any) => {
       if (items) await tx.productBundleItem.deleteMany({ where: { bundleId: BigInt(req.params.id) } });
       await tx.productBundle.update({ where: { id: BigInt(req.params.id) }, data });

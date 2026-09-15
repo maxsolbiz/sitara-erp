@@ -59,12 +59,14 @@ router.post('/', rbacMiddleware('users.manage'), async (req: Request, res: Respo
     logger.info('User created', { userId: user.id.toString(), tenantId: ctx.tenantId.toString() });
     let roleName: string | undefined;
     if (roleId) {
+      const roleCheck = await prisma.role.findFirst({ where: { id: BigInt(roleId), tenantId: ctx.tenantId }, select: { id: true } });
+      if (!roleCheck) { res.status(400).json({ status: 400, detail: 'Role not found' }); return; }
       await prisma.roleUser.upsert({
         where: { userId_roleId: { userId: user.id, roleId: BigInt(roleId) } },
         create: { userId: user.id, roleId: BigInt(roleId) },
         update: {},
       });
-      roleName = (await prisma.role.findUnique({ where: { id: BigInt(roleId) }, select: { name: true } }))?.name;
+      roleName = (await prisma.role.findFirst({ where: { id: BigInt(roleId), tenantId: ctx.tenantId }, select: { name: true } }))?.name;
     }
     void logActivity({
       tenantId: ctx.tenantId, userId: req.user ? BigInt(req.user.userId) : undefined,
@@ -151,6 +153,12 @@ router.patch('/:id/roles', rbacMiddleware('users.manage'), async (req: Request, 
     const userId = BigInt(req.params.id);
     const { roleIds } = req.body;
     if (!Array.isArray(roleIds)) { res.status(400).json({ status: 400, detail: 'roleIds array required' }); return; }
+    const targetUser = await prisma.user.findFirst({ where: { id: userId, tenantId: ctx.tenantId }, select: { id: true } });
+    if (!targetUser) { res.status(404).json({ status: 404, detail: 'User not found' }); return; }
+    for (const rid of roleIds) {
+      const roleCheck = await prisma.role.findFirst({ where: { id: BigInt(rid), tenantId: ctx.tenantId }, select: { id: true } });
+      if (!roleCheck) { res.status(400).json({ status: 400, detail: 'Role not found' }); return; }
+    }
     const beforeLinks = await prisma.roleUser.findMany({ where: { userId }, include: { role: { select: { slug: true } } } });
     const beforeSlugs = beforeLinks.map((l) => l.role.slug);
     // Remove existing

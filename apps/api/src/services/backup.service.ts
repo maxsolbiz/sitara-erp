@@ -75,7 +75,7 @@ export async function createBackup(options: { tenantId: bigint; backupType?: str
       where: { id: record.id },
       data: { filename, storagePath: filePath, fileSize, checksum, recordCounts: counts, durationMs, status: 'completed', completedAt }
     });
-    await cleanupOldBackups(30);
+    await cleanupOldBackups(30, tenantId);
     return updated;
   } catch (err: any) {
     await prisma.backupRecord.update({ where: { id: record.id }, data: { status: 'failed', errorMessage: err.message, completedAt: new Date() } });
@@ -83,9 +83,9 @@ export async function createBackup(options: { tenantId: bigint; backupType?: str
   }
 }
 
-export async function validateBackup(backupId: number): Promise<{ valid: boolean; report: any }> {
+export async function validateBackup(backupId: number, tenantId: bigint): Promise<{ valid: boolean; report: any }> {
   const record = await prisma.backupRecord.findUnique({ where: { id: BigInt(backupId) } });
-  if (!record) throw new Error('Backup record not found');
+  if (!record || record.tenantId !== tenantId) throw new Error('Backup record not found');
   if (!fs.existsSync(record.storagePath)) throw new Error('Backup file not found on disk');
   const compressed = fs.readFileSync(record.storagePath);
   const warnings: string[] = [];
@@ -111,14 +111,14 @@ export async function requestRestoreToken(backupId: number): Promise<string> {
   return token;
 }
 
-export async function executeRestore(options: { backupId: number; confirmToken: string; restoredBy?: bigint }): Promise<{ success: boolean; message: string; counts: Record<string, number> }> {
-  const { backupId, confirmToken, restoredBy } = options;
+export async function executeRestore(options: { backupId: number; confirmToken: string; restoredBy?: bigint; tenantId: bigint }): Promise<{ success: boolean; message: string; counts: Record<string, number> }> {
+  const { backupId, confirmToken, restoredBy, tenantId } = options;
   const tokenData = restoreTokens.get(confirmToken);
   if (!tokenData || tokenData.backupId !== backupId) throw new Error('Invalid or expired confirmation token');
   if (tokenData.expiresAt < Date.now()) { restoreTokens.delete(confirmToken); throw new Error('Confirmation token expired'); }
   restoreTokens.delete(confirmToken);
   const record = await prisma.backupRecord.findUnique({ where: { id: BigInt(backupId) } });
-  if (!record || record.status !== 'completed') throw new Error('Backup not found or not in completed state');
+  if (!record || record.status !== 'completed' || record.tenantId !== tenantId) throw new Error('Backup not found or not in completed state');
   if (!fs.existsSync(record.storagePath)) throw new Error('Backup file missing from disk');
   const compressed = fs.readFileSync(record.storagePath);
   const jsonBuffer = await gunzip(compressed);
@@ -144,8 +144,8 @@ export async function executeRestore(options: { backupId: number; confirmToken: 
   return { success: true, message: 'Restore completed successfully', counts: restoredCounts };
 }
 
-async function cleanupOldBackups(keepCount: number): Promise<void> {
-  const all = await prisma.backupRecord.findMany({ where: { status: 'completed' }, orderBy: { createdAt: 'desc' }, select: { id: true, storagePath: true } });
+async function cleanupOldBackups(keepCount: number, tenantId: bigint): Promise<void> {
+  const all = await prisma.backupRecord.findMany({ where: { tenantId, status: 'completed' }, orderBy: { createdAt: 'desc' }, select: { id: true, storagePath: true } });
   const toDelete = all.slice(keepCount);
   for (const r of toDelete) {
     try {

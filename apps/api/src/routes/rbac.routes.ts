@@ -167,14 +167,18 @@ router.post('/roles/:id/users/:userId', rbacMiddleware('rbac.manage'), async (re
     const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
     const roleId = BigInt(req.params.id);
     const userId = BigInt(req.params.userId);
+    const roleCheck = await prisma.role.findFirst({ where: { id: roleId, tenantId: ctx.tenantId }, select: { id: true } });
+    if (!roleCheck) { res.status(404).json({ status: 404, detail: 'Role not found' }); return; }
+    const userCheck = await prisma.user.findFirst({ where: { id: userId, tenantId: ctx.tenantId }, select: { id: true } });
+    if (!userCheck) { res.status(404).json({ status: 404, detail: 'User not found' }); return; }
     await prisma.roleUser.upsert({
       where: { userId_roleId: { userId, roleId } },
       create: { userId, roleId },
       update: {},
     });
     const [role, user] = await Promise.all([
-      prisma.role.findUnique({ where: { id: roleId }, select: { name: true } }),
-      prisma.user.findUnique({ where: { id: userId }, select: { username: true } }),
+      prisma.role.findFirst({ where: { id: roleId, tenantId: ctx.tenantId }, select: { name: true } }),
+      prisma.user.findFirst({ where: { id: userId, tenantId: ctx.tenantId }, select: { username: true } }),
     ]);
     void logActivity({
       tenantId: ctx.tenantId, userId: req.user ? BigInt(req.user.userId) : undefined,
@@ -195,14 +199,17 @@ router.delete('/roles/:id/users/:userId', rbacMiddleware('rbac.manage'), async (
     const userId = BigInt(req.params.userId);
     // Prevent removing last admin
     const role = await prisma.role.findFirst({ where: { id: roleId, tenantId: ctx.tenantId } });
+    if (!role) { res.status(404).json({ status: 404, detail: 'Role not found' }); return; }
+    const userCheck = await prisma.user.findFirst({ where: { id: userId, tenantId: ctx.tenantId }, select: { id: true } });
+    if (!userCheck) { res.status(404).json({ status: 404, detail: 'User not found' }); return; }
     if (role?.slug === 'admin') {
       const adminCount = await prisma.roleUser.count({ where: { roleId, user: { isActive: true } } });
       if (adminCount <= 1) { res.status(400).json({ status: 400, detail: 'Cannot remove the last admin role' }); return; }
     }
     await prisma.roleUser.deleteMany({ where: { userId, roleId } });
     const [roleInfo, userInfo] = await Promise.all([
-      prisma.role.findUnique({ where: { id: roleId }, select: { name: true } }),
-      prisma.user.findUnique({ where: { id: userId }, select: { username: true } }),
+      prisma.role.findFirst({ where: { id: roleId, tenantId: ctx.tenantId }, select: { name: true } }),
+      prisma.user.findFirst({ where: { id: userId, tenantId: ctx.tenantId }, select: { username: true } }),
     ]);
     void logActivity({
       tenantId: ctx.tenantId, userId: req.user ? BigInt(req.user.userId) : undefined,

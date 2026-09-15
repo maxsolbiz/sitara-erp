@@ -274,7 +274,7 @@ router.post('/process-return', rbacMiddleware('pos.returns.process'), async (req
     if (!customerId || !items || items.length === 0) { res.status(400).json({ status: 400, detail: 'Items required' }); return; }
 
     const method = (refundMethod || 'cash').toLowerCase();
-    const cust = customerId ? await prisma.customer.findUnique({ where: { id: customerId }, select: { customerCode: true, currentBalance: true } }) : null;
+    const cust = customerId ? await prisma.customer.findFirst({ where: { id: customerId, tenantId: ctx.tenantId }, select: { customerCode: true, currentBalance: true } }) : null;
     if (method === 'credit') {
       if (!cust) { res.status(400).json({ status: 400, detail: 'Customer not found' }); return; }
       if (cust.customerCode === 'WALKIN') { res.status(400).json({ status: 400, detail: 'Walk-in customers cannot receive credit refunds' }); return; }
@@ -377,7 +377,7 @@ router.post('/checkout', rbacMiddleware('pos.sales.create'), validateMiddleware(
     // Offline sale deduplication
     const { offlineId, offlineCreatedAt, ...salePayload } = req.body;
     if (offlineId) {
-      const existing = await prisma.sale.findFirst({ where: { offlineId }, select: { id: true, saleNumber: true } });
+      const existing = await prisma.sale.findFirst({ where: { offlineId, tenantId: ctx.tenantId }, select: { id: true, saleNumber: true } });
       if (existing) { return res.json({ success: true, data: { saleId: existing.id.toString(), saleNumber: existing.saleNumber, message: 'Already synced' } }); }
     }
 
@@ -395,8 +395,8 @@ router.post('/checkout', rbacMiddleware('pos.sales.create'), validateMiddleware(
     let autoApplied = 0;
     let pricingTier: any = null;
     if (customerId) {
-      customerRecord = await prisma.customer.findUnique({
-        where: { id: customerId },
+      customerRecord = await prisma.customer.findFirst({
+        where: { id: customerId, tenantId },
         select: { customerCode: true, creditLimit: true, currentBalance: true, pricingTierId: true, pricingTier: true },
       });
       // Apply pricing tier discount to sale items (before computing subtotal)
@@ -508,7 +508,7 @@ router.post('/checkout', rbacMiddleware('pos.sales.create'), validateMiddleware(
           if (remaining <= 0) break;
         }
         if (remaining > 0) {
-          const prod = await tx.product.findUnique({ where: { id: item.productId } });
+          const prod = await tx.product.findFirst({ where: { id: item.productId, tenantId } });
           const fallbackCost = prod ? Number(prod.costPrice) || item.unitPrice : item.unitPrice;
           totalCost += remaining * fallbackCost;
         }
@@ -612,7 +612,7 @@ router.post('/checkout', rbacMiddleware('pos.sales.create'), validateMiddleware(
       // 4. Customer credit — auto-apply, return credit, and credit payment
       const netBalanceChange = (customerCredit + creditPortion) - autoApplied;
       if (customerId) {
-        const cust = await tx.customer.findUnique({ where: { id: customerId }, select: { currentBalance: true, customerCode: true } });
+        const cust = await tx.customer.findFirst({ where: { id: customerId, tenantId }, select: { currentBalance: true, customerCode: true } });
         if (cust && cust.customerCode !== 'WALKIN') {
           const before = Number(cust?.currentBalance || 0);
           if (netBalanceChange !== 0) {
@@ -751,7 +751,7 @@ router.post('/checkout', rbacMiddleware('pos.sales.create'), validateMiddleware(
 
     let updatedBalance = 0;
     if (customerId) {
-      const cust = await prisma.customer.findUnique({ where: { id: customerId }, select: { currentBalance: true } });
+      const cust = await prisma.customer.findFirst({ where: { id: customerId, tenantId }, select: { currentBalance: true } });
       if (cust) updatedBalance = Number(cust.currentBalance);
     }
 

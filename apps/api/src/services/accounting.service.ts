@@ -60,7 +60,7 @@ export class AccountingService {
     const accounts = await prisma.chartOfAccount.findMany({ where: { tenantId: ctx.tenantId, isActive: true }, orderBy: { accountCode: 'asc' } });
     const jeWhere: any = { isReversed: false };
     if (financialYearId) {
-      const fy = await prisma.financialYear.findUnique({ where: { id: financialYearId } });
+      const fy = await prisma.financialYear.findFirst({ where: { id: financialYearId, tenantId: ctx.tenantId } });
       if (fy) jeWhere.entryDate = { gte: fy.startDate, lte: fy.endDate };
     }
     const lines = await prisma.journalEntryLine.findMany({

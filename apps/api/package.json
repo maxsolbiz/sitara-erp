@@ -16,7 +16,8 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "check:tenant-scope": "tsx scripts/check-tenant-scope.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.14.0",
