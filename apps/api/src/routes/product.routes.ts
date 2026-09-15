@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import multer from 'multer';
 import { parse } from 'csv-parse/sync';
@@ -13,6 +13,15 @@ import logger from '../utils/logger';
 import PDFDocument from 'pdfkit';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+
+// Multer's streaming multipart parser can detach AsyncLocalStorage context,
+// so capture the tenant BEFORE upload.single() runs and prefer it in the
+// handler (same pattern as settings logo upload).
+const captureTenant = (req: Request, _res: Response, next: NextFunction) => {
+  (req as any).tenantCtx = getTenantContext();
+  next();
+};
+const handlerTenant = (req: Request) => (req as any).tenantCtx || getTenantContext();
 
 const router = Router();
 
@@ -201,9 +210,9 @@ PRD-002,Sample Product B,Clothing,pieces,300,800,5,25,true,,Another sample`;
   res.send(csv);
 });
 
-router.post('/import', rbacMiddleware('products.import'), upload.single('file'), async (req: Request, res: Response) => {
+router.post('/import', rbacMiddleware('products.import'), captureTenant, upload.single('file'), async (req: Request, res: Response) => {
   try {
-    const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
+    const ctx = handlerTenant(req); if (!ctx) { res.status(401).json({ status: 401 }); return; }
     if (!req.file) { res.status(400).json({ status: 400, detail: 'CSV file required' }); return; }
     const records = parse(req.file.buffer.toString('utf-8'), { columns: true, skip_empty_lines: true, trim: true });
     const results = { imported: 0, skipped: 0, errors: [] as any[], total: records.length };
@@ -244,7 +253,7 @@ router.post('/import', rbacMiddleware('products.import'), upload.single('file'),
   } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
 });
 
-router.get('/import/history', async (req: Request, res: Response) => {
+router.get('/import/history', rbacMiddleware('products.import'), async (req: Request, res: Response) => {
   try {
     const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
     const items = await prisma.importHistory.findMany({
@@ -420,10 +429,12 @@ router.get('/:id/images', rbacMiddleware('products.view'), async (req: Request, 
   } catch { res.json({ data: [] }); }
 });
 
-router.post('/:id/images', rbacMiddleware('products.update'), upload.single('image'), async (req: Request, res: Response) => {
+router.post('/:id/images', rbacMiddleware('products.update'), captureTenant, upload.single('image'), async (req: Request, res: Response) => {
   try {
-    const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
+    const ctx = handlerTenant(req); if (!ctx) { res.status(401).json({ status: 401 }); return; }
     const productId = BigInt(req.params.id);
+    const product = await prisma.product.findFirst({ where: { id: productId, tenantId: ctx.tenantId }, select: { id: true } });
+    if (!product) { res.status(404).json({ status: 404, detail: 'Product not found' }); return; }
     if (!req.file) { res.status(400).json({ status: 400, detail: 'Image file required' }); return; }
     const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
     if (!allowedTypes.includes(req.file.mimetype)) { res.status(400).json({ status: 400, detail: 'Only jpg, png, webp allowed' }); return; }

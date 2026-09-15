@@ -1,4 +1,64 @@
 import nodemailer from 'nodemailer';
+import prisma from '../lib/prisma';
+import { settingService } from './setting.service';
+import { decryptSecret } from '../utils/crypto';
+
+interface ResolvedEmailConfig {
+  apiKey: string | null;
+  fromEmail: string;
+  fromName: string;
+  logoUrl: string;
+}
+
+function baseConfig(): ResolvedEmailConfig {
+  return {
+    apiKey: process.env.RESEND_API_KEY || null,
+    fromEmail: process.env.MAIL_FROM || 'noreply@sitarapurse.com',
+    fromName: process.env.COMPANY_NAME || 'Sitara ERP',
+    logoUrl: LOGO_URL,
+  };
+}
+
+function readSecret(raw: unknown): string | null {
+  if (typeof raw !== 'string' || !raw) return null;
+  try {
+    return raw.startsWith('v1:') ? decryptSecret(raw) : raw;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve effective email config for a tenant: DB-backed settings
+ * (decrypted) overlaid on env defaults. With no tenant or no DB rows,
+ * behaves exactly like the old env-only code path.
+ */
+export async function resolveEmailConfig(tenantId?: bigint): Promise<ResolvedEmailConfig> {
+  const cfg = baseConfig();
+  if (!tenantId) return cfg;
+  try {
+    const [key, fromAddr, fromName, logo] = await Promise.all([
+      settingService.getSetting(tenantId, 'email_resend_api_key', ''),
+      settingService.getSetting(tenantId, 'email_from_address', ''),
+      settingService.getSetting(tenantId, 'email_from_name', ''),
+      settingService.getSetting(tenantId, 'logo_email-header', null),
+    ]);
+    const decrypted = readSecret(key);
+    if (decrypted) cfg.apiKey = decrypted;
+    if (typeof fromAddr === 'string' && fromAddr) cfg.fromEmail = fromAddr;
+    if (typeof fromName === 'string' && fromName) cfg.fromName = fromName;
+    if (logo && typeof logo === 'object' && typeof (logo as any).path === 'string' && (logo as any).path) {
+      cfg.logoUrl = (logo as any).path;
+    }
+  } catch {
+    // Fall through to env defaults — email must degrade, not crash.
+  }
+  return cfg;
+}
+
+function buildTransporter(apiKey: string): nodemailer.Transporter {
+  return nodemailer.createTransport({ host: 'smtp.resend.com', port: 587, secure: false, auth: { user: 'resend', pass: apiKey } });
+}
 
 let transporter: nodemailer.Transporter | null = null;
 let emailConfigured = false;
@@ -6,7 +66,7 @@ let emailConfigured = false;
 function getTransporter(): nodemailer.Transporter | null {
   if (transporter) return transporter;
   if (process.env.RESEND_API_KEY) {
-    transporter = nodemailer.createTransport({ host: 'smtp.resend.com', port: 587, secure: false, auth: { user: 'resend', pass: process.env.RESEND_API_KEY } });
+    transporter = buildTransporter(process.env.RESEND_API_KEY);
     emailConfigured = true;
   } else if (process.env.BREVO_API_KEY) {
     transporter = nodemailer.createTransport({ host: 'smtp-relay.brevo.com', port: 587, secure: false, auth: { user: process.env.SMTP_USER || '', pass: process.env.BREVO_API_KEY } });
@@ -49,10 +109,12 @@ interface ShellParts {
   heading: string;
   bodyHtml: string;
   companyName: string;
+  logoUrl?: string;
 }
 
-export function emailShell({ subject, preheader, heading, bodyHtml, companyName }: ShellParts): string {
+export function emailShell({ subject, preheader, heading, bodyHtml, companyName, logoUrl }: ShellParts): string {
   const safeCompany = escapeHtml(companyName);
+  const logo = escapeHtml(logoUrl || LOGO_URL);
   return `<!DOCTYPE html>
 <html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
@@ -103,7 +165,7 @@ export function emailShell({ subject, preheader, heading, bodyHtml, companyName 
                             <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                                 <tr>
                                     <td style="vertical-align: middle; width: 40px;">
-                                        <img src="${LOGO_URL}" alt="Sitara ERP" width="40" height="40" style="display: block; border: 0; outline: none; text-decoration: none; vertical-align: middle;">
+                                        <img src="${logo}" alt="Sitara ERP" width="40" height="40" style="display: block; border: 0; outline: none; text-decoration: none; vertical-align: middle;">
                                     </td>
                                     <td style="vertical-align: middle; padding-left: 12px;">
                                         <span style="font-size: 18px; font-weight: 700; color: ${INK}; font-family: ${FONT};" class="dark-text">Sitara ERP</span>
@@ -195,14 +257,25 @@ function totalsTable(rows: Array<{ label: string; value: string; bold?: boolean;
   return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin: 0 0 24px 0;">${body}</table>`;
 }
 
-async function sendEmail(to: string, subject: string, html: string) {
+async function sendEmail(to: string, subject: string, html: string, cfg: ResolvedEmailConfig) {
+  if (cfg.apiKey) {
+    const t = buildTransporter(cfg.apiKey);
+    await t.sendMail({ from: `"${cfg.fromName}" <${cfg.fromEmail}>`, to, subject, html });
+    return;
+  }
+  // Legacy env-only chain (Brevo / generic SMTP / unconfigured warning).
   const t = getTransporter();
   if (!t) return;
   await t.sendMail({ from: `"${COMPANY_NAME}" <${FROM_EMAIL}>`, to, subject, html });
 }
 
-export function renderPaymentReceiptEmail(data: { customerName: string; amount: number; reference: string; date: string; balance: number; companyName?: string; paymentMethod?: string }): { subject: string; html: string } {
-  const cn = data.companyName || COMPANY_NAME;
+export interface EmailBrand {
+  companyName?: string;
+  logoUrl?: string;
+}
+
+export function renderPaymentReceiptEmail(data: { customerName: string; amount: number; reference: string; date: string; balance: number; companyName?: string; paymentMethod?: string }, brand?: EmailBrand): { subject: string; html: string } {
+  const cn = data.companyName || brand?.companyName || COMPANY_NAME;
   const body =
     bodyPara(`Dear ${data.customerName},`) +
     bodyPara(`We have received your payment of Rs. ${data.amount.toLocaleString()}. Thank you for your business.`) +
@@ -219,17 +292,19 @@ export function renderPaymentReceiptEmail(data: { customerName: string; amount: 
     heading: 'Payment Receipt',
     bodyHtml: body,
     companyName: cn,
+    logoUrl: brand?.logoUrl,
   });
   return { subject: `Payment Receipt - ${data.reference}`, html };
 }
 
-export async function sendPaymentReceiptEmail(to: string, data: { customerName: string; amount: number; reference: string; date: string; balance: number; companyName?: string; paymentMethod?: string }) {
-  const rendered = renderPaymentReceiptEmail(data);
-  await sendEmail(to, rendered.subject, rendered.html);
+export async function sendPaymentReceiptEmail(to: string, data: { customerName: string; amount: number; reference: string; date: string; balance: number; companyName?: string; paymentMethod?: string; tenantId?: bigint }) {
+  const cfg = await resolveEmailConfig(data.tenantId);
+  const rendered = renderPaymentReceiptEmail(data, { companyName: data.companyName || cfg.fromName, logoUrl: cfg.logoUrl });
+  await sendEmail(to, rendered.subject, rendered.html, cfg);
 }
 
-export function renderSaleInvoiceEmail(data: { customerName: string; invoiceNumber: string; total: number; date: string; companyName?: string; dueDate?: string; items?: Array<{ name: string; quantity: number; unitPrice: number; lineTotal: number }> }): { subject: string; html: string } {
-  const cn = data.companyName || COMPANY_NAME;
+export function renderSaleInvoiceEmail(data: { customerName: string; invoiceNumber: string; total: number; date: string; companyName?: string; dueDate?: string; items?: Array<{ name: string; quantity: number; unitPrice: number; lineTotal: number }> }, brand?: EmailBrand): { subject: string; html: string } {
+  const cn = data.companyName || brand?.companyName || COMPANY_NAME;
   let overdue = false;
   if (data.dueDate) {
     const daysOverdue = Math.floor((Date.now() - new Date(data.dueDate).getTime()) / 86400000);
@@ -266,16 +341,18 @@ export function renderSaleInvoiceEmail(data: { customerName: string; invoiceNumb
     heading: overdue ? 'Invoice Overdue' : 'Sales Invoice',
     bodyHtml: body,
     companyName: cn,
+    logoUrl: brand?.logoUrl,
   });
   return { subject: `Invoice ${data.invoiceNumber} from ${cn}`, html };
 }
 
-export async function sendSaleInvoiceEmail(to: string, data: { customerName: string; invoiceNumber: string; total: number; date: string; companyName?: string; dueDate?: string; items?: Array<{ name: string; quantity: number; unitPrice: number; lineTotal: number }> }) {
-  const rendered = renderSaleInvoiceEmail(data);
-  await sendEmail(to, rendered.subject, rendered.html);
+export async function sendSaleInvoiceEmail(to: string, data: { customerName: string; invoiceNumber: string; total: number; date: string; companyName?: string; dueDate?: string; items?: Array<{ name: string; quantity: number; unitPrice: number; lineTotal: number }>; tenantId?: bigint }) {
+  const cfg = await resolveEmailConfig(data.tenantId);
+  const rendered = renderSaleInvoiceEmail(data, { companyName: data.companyName || cfg.fromName, logoUrl: cfg.logoUrl });
+  await sendEmail(to, rendered.subject, rendered.html, cfg);
 }
 
-export function renderPasswordResetEmail(data: { resetUrl: string; expiryMinutes: number }): { subject: string; html: string } {
+export function renderPasswordResetEmail(data: { resetUrl: string; expiryMinutes: number }, brand?: EmailBrand): { subject: string; html: string } {
   const body =
     bodyPara('You requested a password reset for your Sitara ERP account. Click the button below to set a new password:') +
     ctaButton(data.resetUrl, 'Reset Password') +
@@ -288,12 +365,15 @@ export function renderPasswordResetEmail(data: { resetUrl: string; expiryMinutes
     preheader: 'Reset your Sitara ERP password — link expires in 60 minutes',
     heading: 'Reset your password',
     bodyHtml: body,
-    companyName: COMPANY_NAME,
+    companyName: brand?.companyName || COMPANY_NAME,
+    logoUrl: brand?.logoUrl,
   });
   return { subject: 'Password Reset Request', html };
 }
 
 export async function sendPasswordResetEmail(to: string, data: { resetUrl: string; expiryMinutes: number }) {
-  const rendered = renderPasswordResetEmail(data);
-  await sendEmail(to, rendered.subject, rendered.html);
+  const owner = await prisma.user.findFirst({ where: { email: to }, select: { tenantId: true } }).catch(() => null);
+  const cfg = await resolveEmailConfig(owner?.tenantId);
+  const rendered = renderPasswordResetEmail(data, { companyName: cfg.fromName, logoUrl: cfg.logoUrl });
+  await sendEmail(to, rendered.subject, rendered.html, cfg);
 }

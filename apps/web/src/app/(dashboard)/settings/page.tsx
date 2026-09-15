@@ -49,6 +49,11 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<SettingsState>(DEFAULTS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState('');
+  // Secret fields show the server-side mask; only send a new value when the
+  // user actually edits the field — never resubmit the mask as if real.
+  const [secretDirty, setSecretDirty] = useState({ resend: false, smtpPass: false });
+  const [logos, setLogos] = useState<Record<string, any>>({});
+  const [uploading, setUploading] = useState('');
 
   const loadSettings = async (category: string) => {
     const res = await apiGet(`/settings/${category}`).catch(() => null);
@@ -84,14 +89,52 @@ export default function SettingsPage() {
       }
     }
     try {
+      if (category === 'email') {
+        if (!secretDirty.resend) delete payload.email_resend_api_key;
+        if (!secretDirty.smtpPass) delete payload.email_smtp_pass;
+      }
       const res = await apiPut(`/settings/${category}`, payload) as any;
       if (res.error) { toast.error(res.error.detail); return; }
+      if (category === 'email') setSecretDirty({ resend: false, smtpPass: false });
       toast.success(`${category.charAt(0).toUpperCase() + category.slice(1)} settings saved`);
     } catch (err: any) { toast.error(err.message); }
     finally { setSaving(''); }
   };
 
   const update = (key: keyof SettingsState, value: any) => setSettings((prev) => ({ ...prev, [key]: value }));
+
+  const loadLogos = async () => {
+    const res = await apiGet('/settings/logos').catch(() => null);
+    if (res?.data) setLogos(res.data);
+  };
+
+  useEffect(() => { loadLogos(); }, []);
+
+  const handleLogoUpload = async (slot: string, file: File | undefined) => {
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { toast.error('Max 5MB'); return; }
+    setUploading(slot);
+    try {
+      const form = new FormData(); form.append('logo', file);
+      const res = await fetch('/api/v1/settings/logos/' + slot, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+        body: form,
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data?.detail || 'Upload failed'); return; }
+      toast.success('Logo uploaded'); loadLogos();
+    } catch (err: any) { toast.error(err.message); } finally { setUploading(''); }
+  };
+
+  const handleLogoRevert = async (slot: string) => {
+    try {
+      const { apiDelete } = await import('@/lib/api');
+      const res = await apiDelete(`/settings/logos/${slot}`) as any;
+      if (res?.error) { toast.error(res.error.detail); return; }
+      toast.success('Reverted to default'); loadLogos();
+    } catch (err: any) { toast.error(err.message); }
+  };
 
   if (loading) return <div className="flex justify-center py-12"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>;
 
@@ -104,6 +147,7 @@ export default function SettingsPage() {
           <TabsTrigger value="pos"><ShoppingCart className="h-4 w-4 mr-1.5" />POS</TabsTrigger>
           <TabsTrigger value="receipt"><Printer className="h-4 w-4 mr-1.5" />Receipt</TabsTrigger>
           <TabsTrigger value="email"><Mail className="h-4 w-4 mr-1.5" />Email</TabsTrigger>
+          <TabsTrigger value="branding"><Building2 className="h-4 w-4 mr-1.5" />Branding</TabsTrigger>
           <TabsTrigger value="hardware"><HardDrive className="h-4 w-4 mr-1.5" />Hardware</TabsTrigger>
           <TabsTrigger value="system"><SettingsIcon className="h-4 w-4 mr-1.5" />System</TabsTrigger>
         </TabsList>
@@ -182,7 +226,7 @@ export default function SettingsPage() {
                   <option value="none">None (disable email)</option><option value="resend">Resend</option><option value="smtp">SMTP</option>
                 </select>
               </div>
-              {settings.email_service_provider === 'resend' && <div className="space-y-2"><Label>Resend API Key</Label><Input type="password" value={settings.email_resend_api_key || ''} onChange={(e) => update('email_resend_api_key', e.target.value)} /></div>}
+              {settings.email_service_provider === 'resend' && <div className="space-y-2"><Label>Resend API Key</Label><Input type="password" value={settings.email_resend_api_key || ''} placeholder={settings.email_resend_api_key?.includes('•') ? 'Saved (masked) — type to replace' : 're_...'} onChange={(e) => { update('email_resend_api_key', e.target.value); setSecretDirty((p) => ({ ...p, resend: true })); }} /></div>}
               {settings.email_service_provider === 'smtp' && (<>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2"><Label>SMTP Host</Label><Input value={settings.email_smtp_host || ''} onChange={(e) => update('email_smtp_host', e.target.value)} /></div>
@@ -190,7 +234,7 @@ export default function SettingsPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2"><Label>Username</Label><Input value={settings.email_smtp_user || ''} onChange={(e) => update('email_smtp_user', e.target.value)} /></div>
-                  <div className="space-y-2"><Label>Password</Label><Input type="password" value={settings.email_smtp_pass || ''} onChange={(e) => update('email_smtp_pass', e.target.value)} /></div>
+                  <div className="space-y-2"><Label>Password</Label><Input type="password" value={settings.email_smtp_pass || ''} placeholder={settings.email_smtp_pass?.includes('•') ? 'Saved (masked) — type to replace' : ''} onChange={(e) => { update('email_smtp_pass', e.target.value); setSecretDirty((p) => ({ ...p, smtpPass: true })); }} /></div>
                 </div>
               </>)}
               <div className="grid grid-cols-2 gap-4">
@@ -198,6 +242,38 @@ export default function SettingsPage() {
                 <div className="space-y-2"><Label>From Name</Label><Input value={settings.email_from_name || ''} onChange={(e) => update('email_from_name', e.target.value)} placeholder="Company Name" /></div>
               </div>
               <Button onClick={() => handleSave('email')} disabled={saving === 'email'}><Save className="h-4 w-4 mr-2" />{saving === 'email' ? 'Saving...' : 'Save Email Settings'}</Button>
+              <div className="flex items-center gap-2 pt-2">
+                <Button variant="outline" onClick={async () => { toast.loading('Sending test email...'); try { const r = await apiPost('/settings/email/test', {}) as any; toast.dismiss(); if (r?.data?.message) toast.success(r.data.message); else toast.error(r?.error?.detail || 'Failed'); } catch { toast.dismiss(); toast.error('Failed to send test email'); } }}>Send Test Email</Button>
+                <p className="text-xs text-muted-foreground">Sends to your own account email without saving anything.</p>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="branding" className="space-y-6">
+          <Card><CardHeader><CardTitle className="text-lg">Logo Slots</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">Upload a logo per slot (PNG, JPEG, or SVG, max 5MB). Empty slots fall back to the default logo.</p>
+              {[['email-header', 'Email Header'], ['invoice-pdf', 'Invoice PDF'], ['web-app', 'Web App'], ['receipt-print', 'Receipt Print']].map(([slot, label]) => (
+                <div key={slot} className="flex items-center gap-4 border rounded-lg p-4">
+                  <div className="h-12 w-12 rounded bg-muted flex items-center justify-center overflow-hidden">
+                    {logos[slot]?.path
+                      ? <img src={logos[slot].path} alt={label} className="max-h-12 max-w-12 object-contain" />
+                      : <span className="text-xs text-muted-foreground">Default</span>}
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-medium text-sm">{label}</p>
+                    <p className="text-xs text-muted-foreground font-mono">{slot}{logos[slot]?.updatedAt ? ` · updated ${String(logos[slot].updatedAt).slice(0, 10)}` : ''}</p>
+                  </div>
+                  <label className="cursor-pointer">
+                    <span className="inline-flex items-center justify-center rounded-md text-sm font-medium h-9 px-4 border border-input bg-background hover:bg-accent">
+                      {uploading === slot ? 'Uploading...' : 'Upload'}
+                    </span>
+                    <input type="file" accept="image/png,image/jpeg,image/svg+xml" className="hidden" onChange={(e) => { handleLogoUpload(slot, e.target.files?.[0]); e.target.value = ''; }} />
+                  </label>
+                  {logos[slot]?.path && <Button variant="outline" size="sm" onClick={() => handleLogoRevert(slot)}>Revert</Button>}
+                </div>
+              ))}
             </CardContent>
           </Card>
         </TabsContent>

@@ -53,6 +53,17 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
     return;
   }
 
+  if (err.name === 'MulterError') {
+    const detail = (err as any).code === 'LIMIT_FILE_SIZE' ? 'File too large (max 5MB)' : 'Invalid file upload';
+    res.status(400).json({
+      type: 'https://httpstatuses.io/400',
+      title: 'Bad Request',
+      detail,
+      status: 400,
+    });
+    return;
+  }
+
   res.status(500).json({
     type: 'https://httpstatuses.io/500',
     title: 'Internal Server Error',
