@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { apiGet, apiPost } from '@/lib/api';
+import { apiGet, apiPost, apiPut } from '@/lib/api';
 import { toast } from 'sonner';
 import { ArrowLeft, Save } from 'lucide-react';
 import { useAuth, hasPermission } from '@/lib/auth';
@@ -44,11 +44,8 @@ export default function EditProductPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setSaving(true);
     try {
-      const res = await fetch(`http://localhost:3000/api/v1/products/${params.id}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('accessToken')}` },
-        body: JSON.stringify(form),
-      });
-      if (!res.ok) { toast.error('Failed to update'); return; }
+      const r: any = await apiPut(`/products/${params.id}`, form);
+      if (!r?.ok && !r?.data) { toast.error(r?.error?.detail || 'Failed to update'); return; }
       toast.success('Product updated'); router.push(`/products/${params.id}`);
     } catch (err: any) { toast.error(err.message); }
     finally { setSaving(false); }
