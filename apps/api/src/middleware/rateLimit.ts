@@ -8,14 +8,21 @@ interface RateLimitConfig {
   keyPrefix: string;
 }
 
-const defaultConfig: RateLimitConfig = {
-  windowMs: 60 * 1000,
-  maxAttempts: process.env.NODE_ENV === 'development' ? 200 : 30,
-  keyPrefix: 'ratelimit',
-};
+// Resolved lazily inside the factory (not as a module-level snapshot):
+// dotenv only runs in config/index.ts, so reading process.env at import
+// time sees pre-dotenv values and silently applies prod limits in dev.
+// The auth limiter below already evaluates late (at route-setup time) —
+// this mirrors that working pattern for the global default.
+function defaultConfig(): RateLimitConfig {
+  return {
+    windowMs: 60 * 1000,
+    maxAttempts: process.env.NODE_ENV === 'development' ? 200 : 30,
+    keyPrefix: 'ratelimit',
+  };
+}
 
 export function rateLimitMiddleware(config: Partial<RateLimitConfig> = {}) {
-  const cfg = { ...defaultConfig, ...config };
+  const cfg = { ...defaultConfig(), ...config };
 
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const key = `${cfg.keyPrefix}:${req.ip || req.socket.remoteAddress}`;
