@@ -43,8 +43,16 @@ app.set('trust proxy', 'loopback');
 app.use((_req, _res, next) => runWithTenantContext(null, next));
 
 app.use(helmet({ contentSecurityPolicy: false }));
+// Production origins are enumerated exactly — never loose regex. A previous
+// allowlist ([/\.sitara\.pk$/, /^https:\/\/app\.sitara\./]) was removable:
+// sitara.pk is not org-controlled, and the app.sitara. prefix was anchored
+// at the start only, matching attacker subdomains like app.sitara.evil.com.
+const allowedOrigins = [
+  'https://app.sitarapurse.com',
+  'https://api.sitarapurse.com',
+];
 app.use(cors({
-  origin: config.nodeEnv === 'development' ? '*' : [/\.sitarapurse\.com$/, /\.sitara\.pk$/, /^https:\/\/app\.sitara\./],
+  origin: config.nodeEnv === 'development' ? '*' : allowedOrigins,
   credentials: true,
 }));
 app.use(compression());
