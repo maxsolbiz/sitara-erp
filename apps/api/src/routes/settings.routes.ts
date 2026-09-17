@@ -170,12 +170,17 @@ router.put('/:category', rbacMiddleware('settings.update'), async (req: Request,
     if (category === 'email') {
       // Secrets are stored encrypted; a masked placeholder echoed back by
       // the UI means "unchanged" and must not overwrite the stored value.
-      for (const key of EMAIL_SECRET_KEYS) {
-        if (!(key in body)) continue;
-        const incoming = body[key];
-        if (typeof incoming !== 'string' || !incoming) { body[key] = ''; continue; }
-        if (isMaskedPlaceholder(incoming)) { delete body[key]; continue; }
-        body[key] = encryptSecret(incoming);
+      try {
+        for (const key of EMAIL_SECRET_KEYS) {
+          if (!(key in body)) continue;
+          const incoming = body[key];
+          if (typeof incoming !== 'string' || !incoming) { body[key] = ''; continue; }
+          if (isMaskedPlaceholder(incoming)) { delete body[key]; continue; }
+          body[key] = encryptSecret(incoming);
+        }
+      } catch {
+        res.status(400).json({ status: 400, detail: 'Settings encryption is not configured on this server' });
+        return;
       }
     }
     await settingService.upsertSettings(ctx.tenantId, body);
@@ -207,34 +212,6 @@ router.get('/users', rbacMiddleware('users.view'), async (_req: Request, res: Re
     });
     res.json({ data: users.map((u) => ({ id: u.id.toString(), username: u.username, email: u.email, fullName: u.fullName, isActive: u.isActive, isSuperAdmin: u.isSuperAdmin, status: u.status, lastLogin: u.lastLogin })) });
   } catch { res.json({ data: [] }); }
-});
-
-router.post('/users', rbacMiddleware('users.manage'), async (_req: Request, res: Response) => {
-  res.status(201).json({ data: { message: 'User created' } });
-});
-
-router.put('/users/:id', rbacMiddleware('users.manage'), async (req: Request, res: Response) => {
-  res.json({ data: { id: req.params.id, message: 'User updated' } });
-});
-
-router.delete('/users/:id', rbacMiddleware('users.manage'), async (req: Request, res: Response) => {
-  res.json({ data: { id: req.params.id, message: 'User deleted' } });
-});
-
-router.get('/roles', rbacMiddleware('rbac.manage'), async (_req: Request, res: Response) => {
-  res.json({ data: [] });
-});
-
-router.post('/roles', rbacMiddleware('rbac.manage'), async (_req: Request, res: Response) => {
-  res.status(201).json({ data: { message: 'Role created' } });
-});
-
-router.put('/roles/:id/permissions', rbacMiddleware('rbac.manage'), async (_req: Request, res: Response) => {
-  res.json({ data: { message: 'Permissions updated' } });
-});
-
-router.put('/users/:id/roles', rbacMiddleware('users.manage'), async (_req: Request, res: Response) => {
-  res.json({ data: { message: 'User roles updated' } });
 });
 
 router.get('/backup/download', rbacMiddleware('settings.view'), async (_req: Request, res: Response) => {
