@@ -105,11 +105,16 @@ export async function api<T = any>(
       const newToken = getAccessToken();
       headers['Authorization'] = `Bearer ${newToken}`;
       const retryRes = await fetch(url, { ...fetchOptions, headers });
-      return normalize(await retryRes.json().catch(() => ({})), retryRes.status);
+      if (retryRes.status !== 401) {
+        return normalize(await retryRes.json().catch(() => ({})), retryRes.status);
+      }
+      // Refresh succeeded but the new token is still rejected: the session
+      // is dead server-side. Fall through to logout instead of returning a
+      // silent 401 that polling callers would retry forever.
     }
 
     if (typeof window !== 'undefined') {
-      window.location.href = '/login';
+      logout();
     }
     return { ok: false, error: { status: 401, detail: 'Session expired' } };
   }
