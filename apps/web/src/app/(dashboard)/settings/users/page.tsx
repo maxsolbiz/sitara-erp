@@ -7,11 +7,13 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { apiGet, apiPost, apiPut, apiDelete, apiPatch } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 import { toast } from 'sonner';
 import { Plus, Pencil, Trash2, Key, Lock } from 'lucide-react';
 import Link from 'next/link';
 
 export default function SettingsUsersPage() {
+  const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<any[]>([]);
   const [roles, setRoles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -81,11 +83,24 @@ export default function SettingsUsersPage() {
     return colors[slug] || 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
   };
 
+  // Mirror of the backend delete guards (user.routes.ts): cannot deactivate
+  // yourself, nor the last remaining active admin.
+  const isSelf = (u: any) => !!currentUser && String(u.id) === String(currentUser.id);
+  const activeAdmins = users.filter((u: any) => u.isActive && u.roleAssignments?.some((r: any) => r.slug === 'admin'));
+  const isLastAdmin = (u: any) =>
+    !!u.isActive && u.roleAssignments?.some((r: any) => r.slug === 'admin') && activeAdmins.length <= 1;
+  const deleteDisabledReason = (u: any): string | null => {
+    if (isSelf(u)) return 'You cannot deactivate your own account';
+    if (isLastAdmin(u)) return 'Cannot deactivate the last admin user';
+    return null;
+  };
+
   return (<div className="space-y-6">
     <PageHeader title="Users" description="Manage system users">
       <Button size="sm" onClick={openCreate}><Plus className="h-4 w-4 mr-1.5" />Add User</Button>
     </PageHeader>
     <div className="rounded-lg border">
+      <p className="text-xs text-muted-foreground px-3 pt-3">You cannot deactivate your own account or the last remaining admin user.</p>
       <table className="w-full text-sm">
         <thead><tr className="border-b bg-muted/50">
           <th className="text-left p-3 font-medium">Name</th><th className="text-left p-3 font-medium">Email</th>
@@ -110,7 +125,7 @@ export default function SettingsUsersPage() {
               <td className="p-3 text-right space-x-1">
                 <Button variant="ghost" size="sm" onClick={() => { setPasswordTarget(u); setShowPassword(true); }}><Key className="h-3.5 w-3.5" /></Button>
                 <Button variant="ghost" size="sm" onClick={() => openEdit(u)}><Pencil className="h-3.5 w-3.5" /></Button>
-                <Button variant="ghost" size="sm" onClick={() => handleDelete(u.id)}><Trash2 className="h-3.5 w-3.5 text-red-500" /></Button>
+                <Button variant="ghost" size="sm" onClick={() => handleDelete(u.id)} disabled={deleteDisabledReason(u) !== null} title={deleteDisabledReason(u) || 'Deactivate user'}><Trash2 className="h-3.5 w-3.5 text-red-500" /></Button>
               </td>
             </tr>
           ))}
