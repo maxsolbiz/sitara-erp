@@ -8,6 +8,10 @@ export const metadata: Metadata = {
   icons: { icon: '/favicon.svg', shortcut: '/favicon.svg' },
   manifest: '/manifest.json',
   appleWebApp: { capable: true, statusBarStyle: 'black-translucent', title: 'Sitara ERP' },
+  // Next 14's Viewport type has no mobileWebAppCapable field, so emit the
+  // standard tag directly. Chrome deprecates the Apple-only variant and
+  // requires this alongside it (fixes console warning on /settings, /pos).
+  other: { 'mobile-web-app-capable': 'yes' },
 };
 
 export const viewport: Viewport = {

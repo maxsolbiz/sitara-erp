@@ -5,23 +5,11 @@ const withPWA = require('next-pwa')({
   skipWaiting: true,
   disable: process.env.NODE_ENV === 'development',
   buildExcludes: [/middleware-manifest\.json$/],
-  runtimeCaching: [
-    {
-      urlPattern: /^\/api\/products/,
-      handler: 'StaleWhileRevalidate',
-      options: { cacheName: 'api-products', expiration: { maxEntries: 500, maxAgeSeconds: 86400 } },
-    },
-    {
-      urlPattern: /^\/api\/customers/,
-      handler: 'StaleWhileRevalidate',
-      options: { cacheName: 'api-customers', expiration: { maxEntries: 1000, maxAgeSeconds: 86400 } },
-    },
-    {
-      urlPattern: /^\/api\/settings/,
-      handler: 'StaleWhileRevalidate',
-      options: { cacheName: 'api-settings', expiration: { maxEntries: 10, maxAgeSeconds: 604800 } },
-    },
-  ],
+  // NOTE: no runtimeCaching for /api/* — those endpoints require
+  // Authorization and are user/tenant-specific. Caching them in the
+  // service worker would store 401s or leak one user's data to another.
+  // Offline support is handled via IndexedDB (lib/offline-db.ts) instead.
+  runtimeCaching: [],
 });
 
 const nextConfig = {

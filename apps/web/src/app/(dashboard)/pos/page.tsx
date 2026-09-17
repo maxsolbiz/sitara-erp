@@ -83,16 +83,18 @@ export default function PosPage() {
     loadPOSData();
   }, []);
 
-  // Prefetch data for offline cache
+  // Prefetch data for offline cache (authenticated — uses apiGet so the
+  // Authorization header + refresh flow apply; raw fetch() here caused
+  // 401s on /api/products and /api/customers in production)
   useEffect(() => {
     const prefetch = async () => {
       try {
-        const res = await fetch('/api/products?perPage=1000&isActive=true');
-        if (res.ok) { const data = await res.json(); if (data.data) await cacheProducts(data.data); }
+        const res = await apiGet<any[]>('/products', { params: { perPage: '1000', isActive: 'true' } }).catch(() => null);
+        if (res?.data) await cacheProducts(res.data);
       } catch { console.log('[POS] Products prefetch failed'); }
       try {
-        const cRes = await fetch('/api/customers?perPage=1000&isActive=true');
-        if (cRes.ok) { const cData = await cRes.json(); if (cData.data) await cacheCustomers(cData.data); }
+        const cRes = await apiGet<any[]>('/customers', { params: { perPage: '1000', isActive: 'true' } }).catch(() => null);
+        if (cRes?.data) await cacheCustomers(cRes.data);
       } catch { console.log('[POS] Customers prefetch failed'); }
     };
     prefetch();
