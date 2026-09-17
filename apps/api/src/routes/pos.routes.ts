@@ -163,6 +163,15 @@ router.post('/hold', rbacMiddleware('pos.sales.hold'), async (req: Request, res:
     const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
     const { items, customerId } = req.body;
     if (!items || items.length === 0) { res.status(400).json({ status: 400, detail: 'No items' }); return; }
+    // FK ownership: customer (if given) and every product must belong to this tenant.
+    if (customerId) {
+      const customer = await prisma.customer.findFirst({ where: { id: BigInt(customerId), tenantId: ctx.tenantId }, select: { id: true } });
+      if (!customer) { res.status(403).json({ status: 403, detail: 'Customer not found or not accessible' }); return; }
+    }
+    for (const i of items) {
+      const product = await prisma.product.findFirst({ where: { id: BigInt(i.productId), tenantId: ctx.tenantId }, select: { id: true } });
+      if (!product) { res.status(403).json({ status: 403, detail: `Product ${i.productId} not found or not accessible` }); return; }
+    }
     const saleNumber = `HOLD-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${String(Math.floor(Math.random() * 9999)).padStart(4, '0')}`;
     const total = items.reduce((s: number, i: any) => s + (i.unitPrice * i.quantity), 0);
 
@@ -284,7 +293,24 @@ router.post('/process-return', rbacMiddleware('pos.returns.process'), async (req
       where: { tenantId: ctx.tenantId, id: BigInt(items[0].saleItemId) },
       select: { saleId: true },
     });
-    const saleIdBigInt = firstItem?.saleId || BigInt(saleId || 0);
+    // FK ownership: when the first item doesn't resolve to an in-tenant
+    // sale, the client-supplied saleId fallback must be verified — never
+    // trusted blindly (BigInt(saleId || 0) would attach to id 0/foreign).
+    let saleIdBigInt: bigint;
+    if (firstItem?.saleId) {
+      saleIdBigInt = firstItem.saleId;
+    } else if (saleId) {
+      const sale = await prisma.sale.findFirst({ where: { id: BigInt(saleId), tenantId: ctx.tenantId }, select: { id: true } });
+      if (!sale) { res.status(403).json({ status: 403, detail: 'Sale not found or not accessible' }); return; }
+      saleIdBigInt = sale.id;
+    } else {
+      res.status(400).json({ status: 400, detail: 'Sale item or sale required' }); return;
+    }
+    // FK ownership: every returned product must belong to this tenant.
+    for (const item of items) {
+      const product = await prisma.product.findFirst({ where: { id: BigInt(item.productId || 0), tenantId: ctx.tenantId }, select: { id: true } });
+      if (!product) { res.status(403).json({ status: 403, detail: `Product ${item.productId} not found or not accessible` }); return; }
+    }
     const returnNumber = `RET-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${String(Math.floor(Math.random() * 9999)).padStart(4, '0')}`;
     const totalAmount = items.reduce((s: number, i: any) => s + (i.unitPrice || 0) * i.quantity, 0);
     const tenantId = ctx.tenantId;
@@ -389,6 +415,14 @@ router.post('/checkout', rbacMiddleware('pos.sales.create'), validateMiddleware(
     // Separate sale vs return items
     const saleItems = items.filter((i: any) => i.quantity > 0);
     const returnItems = items.filter((i: any) => i.quantity < 0);
+
+    // FK ownership: every product on the ticket must belong to this tenant
+    // (stock lookups below are tenant-scoped and would fail safe for sale
+    // items, but return items skip stock validation — check explicitly).
+    for (const i of items) {
+      const product = await prisma.product.findFirst({ where: { id: BigInt(i.productId), tenantId }, select: { id: true } });
+      if (!product) { res.status(403).json({ status: 403, detail: `Product ${i.productId} not found or not accessible` }); return; }
+    }
 
     // Fetch customer record early for pricing tier, auto-apply, credit validation
     let customerRecord: any = null;

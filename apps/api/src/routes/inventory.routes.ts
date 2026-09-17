@@ -73,6 +73,13 @@ router.post('/adjustments', rbacMiddleware('inventory.adjustments'), async (req:
     const { warehouseId, reason, notes, items } = req.body;
     if (!items || items.length === 0) { res.status(400).json({ status: 400, detail: 'Items required' }); return; }
     const tenantId = ctx.tenantId;
+    // FK ownership: warehouse and every product must belong to this tenant.
+    const warehouse = await prisma.warehouse.findFirst({ where: { id: BigInt(warehouseId), tenantId }, select: { id: true } });
+    if (!warehouse) { res.status(403).json({ status: 403, detail: 'Warehouse not found or not accessible' }); return; }
+    for (const item of items) {
+      const product = await prisma.product.findFirst({ where: { id: BigInt(item.productId), tenantId }, select: { id: true } });
+      if (!product) { res.status(403).json({ status: 403, detail: `Product ${item.productId} not found or not accessible` }); return; }
+    }
     const result = await prisma.$transaction(async (tx: any) => {
       const created: any[] = [];
       for (const item of items) {
@@ -212,6 +219,11 @@ router.post('/transfers', rbacMiddleware('inventory.transfer'), async (req: Requ
     ]);
     if (!fromWh || !toWh) {
       res.status(400).json({ status: 400, detail: 'Warehouse not found' }); return;
+    }
+    // FK ownership: every transferred product must belong to this tenant.
+    for (const item of items) {
+      const product = await prisma.product.findFirst({ where: { id: BigInt(item.productId), tenantId }, select: { id: true } });
+      if (!product) { res.status(403).json({ status: 403, detail: `Product ${item.productId} not found or not accessible` }); return; }
     }
     const transferNumber = `TRF-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${String(Math.floor(Math.random() * 9999)).padStart(4, '0')}`;
     const result = await prisma.$transaction(async (tx: any) => {

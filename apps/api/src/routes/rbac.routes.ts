@@ -56,10 +56,13 @@ router.post('/roles', rbacMiddleware('rbac.manage'), async (req: Request, res: R
     const role = await prisma.role.create({ data: { tenantId: ctx.tenantId, name, slug, description: description || null, isSystem: false } });
     let permSlugs: string[] = [];
     if (permissionIds && Array.isArray(permissionIds)) {
+      // FK ownership: permissions must belong to this tenant.
       for (const pid of permissionIds) {
+        const perm = await prisma.permission.findFirst({ where: { id: BigInt(pid), tenantId: ctx.tenantId }, select: { id: true } });
+        if (!perm) { res.status(403).json({ status: 403, detail: `Permission ${pid} not found or not accessible` }); return; }
         await prisma.rolePermission.create({ data: { roleId: role.id, permissionId: BigInt(pid) } });
       }
-      const perms = await prisma.permission.findMany({ where: { id: { in: permissionIds.map((p: any) => BigInt(p)) } }, select: { slug: true } });
+      const perms = await prisma.permission.findMany({ where: { tenantId: ctx.tenantId, id: { in: permissionIds.map((p: any) => BigInt(p)) } }, select: { slug: true } });
       permSlugs = perms.map((p) => p.slug);
     }
     void logActivity({
@@ -125,6 +128,14 @@ router.patch('/roles/:id/permissions', rbacMiddleware('rbac.manage'), async (req
     const roleId = BigInt(req.params.id);
     const { permissionIds } = req.body;
     if (!Array.isArray(permissionIds)) { res.status(400).json({ status: 400, detail: 'permissionIds array required' }); return; }
+    // FK ownership: the role must belong to this tenant before its links
+    // are wiped, and every attached permission must too.
+    const ownedRole = await prisma.role.findFirst({ where: { id: roleId, tenantId: ctx.tenantId }, select: { id: true } });
+    if (!ownedRole) { res.status(404).json({ status: 404, detail: 'Role not found' }); return; }
+    for (const pid of permissionIds) {
+      const perm = await prisma.permission.findFirst({ where: { id: BigInt(pid), tenantId: ctx.tenantId }, select: { id: true } });
+      if (!perm) { res.status(403).json({ status: 403, detail: `Permission ${pid} not found or not accessible` }); return; }
+    }
     const beforeLinks = await prisma.rolePermission.findMany({ where: { roleId }, include: { permission: { select: { slug: true } } } });
     const beforeSlugs = beforeLinks.map((l) => l.permission.slug);
     await prisma.rolePermission.deleteMany({ where: { roleId } });

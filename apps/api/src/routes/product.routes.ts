@@ -281,6 +281,11 @@ router.post('/bundles', rbacMiddleware('products.create'), async (req: Request, 
     if (!name || !sku || !items || items.length === 0) { res.status(400).json({ status: 400, detail: 'Name, SKU, and items required' }); return; }
     const existing = await prisma.productBundle.findFirst({ where: { tenantId: ctx.tenantId, sku } });
     if (existing) { res.status(409).json({ status: 409, detail: 'SKU already exists' }); return; }
+    // FK ownership: bundled products must belong to this tenant.
+    for (const i of items) {
+      const prod = await prisma.product.findFirst({ where: { id: BigInt(i.productId), tenantId: ctx.tenantId }, select: { id: true } });
+      if (!prod) { res.status(403).json({ status: 403, detail: `Product ${i.productId} not found or not accessible` }); return; }
+    }
     const bundle = await prisma.productBundle.create({
       data: { tenantId: ctx.tenantId, name, sku, sellingPrice: sellingPrice || 0, description: description || null, items: { create: items.map((i: any) => ({ productId: BigInt(i.productId), quantity: i.quantity || 1 })) } },
     });
@@ -298,6 +303,11 @@ router.put('/bundles/:id', rbacMiddleware('products.update'), async (req: Reques
     if (description !== undefined) data.description = description;
     const bundleCheck = await prisma.productBundle.findFirst({ where: { id: BigInt(req.params.id), tenantId: ctx.tenantId }, select: { id: true } });
     if (!bundleCheck) { res.status(404).json({ status: 404, detail: 'Bundle not found' }); return; }
+    // FK ownership: bundled products must belong to this tenant.
+    if (items) for (const i of items) {
+      const prod = await prisma.product.findFirst({ where: { id: BigInt(i.productId), tenantId: ctx.tenantId }, select: { id: true } });
+      if (!prod) { res.status(403).json({ status: 403, detail: `Product ${i.productId} not found or not accessible` }); return; }
+    }
     await prisma.$transaction(async (tx: any) => {
       if (items) await tx.productBundleItem.deleteMany({ where: { bundleId: BigInt(req.params.id) } });
       await tx.productBundle.update({ where: { id: BigInt(req.params.id) }, data });
@@ -387,6 +397,9 @@ router.post('/:id/variants', rbacMiddleware('products.create'), async (req: Requ
     if (!sku || !name) { res.status(400).json({ status: 400, detail: 'SKU and name required' }); return; }
     const exists = await prisma.productVariant.findFirst({ where: { tenantId: ctx.tenantId, sku } });
     if (exists) { res.status(409).json({ status: 409, detail: 'SKU already exists' }); return; }
+    // FK ownership: the parent product must belong to this tenant.
+    const parent = await prisma.product.findFirst({ where: { id: productId, tenantId: ctx.tenantId }, select: { id: true } });
+    if (!parent) { res.status(403).json({ status: 403, detail: 'Product not found or not accessible' }); return; }
     const variant = await prisma.productVariant.create({
       data: { tenantId: ctx.tenantId, productId, sku, name, barcode: barcode || null, costPrice: costPrice || 0, sellingPrice: sellingPrice || 0 },
     });

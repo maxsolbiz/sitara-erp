@@ -102,6 +102,9 @@ router.post('/', rbacMiddleware('expenses.create'), async (req: Request, res: Re
     const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
     const { categoryId, amount, description, expenseDate, paymentMethod, referenceNumber, notes } = req.body;
     if (!categoryId || !amount || amount <= 0) { res.status(400).json({ status: 400, detail: 'Category and positive amount required' }); return; }
+    // FK ownership: category must belong to this tenant.
+    const category = await prisma.expenseCategory.findFirst({ where: { id: BigInt(categoryId), tenantId: ctx.tenantId }, select: { id: true } });
+    if (!category) { res.status(403).json({ status: 403, detail: 'Expense category not found or not accessible' }); return; }
     const num = `EXP-${Date.now().toString(36).toUpperCase()}`;
     const created = await prisma.expense.create({
       data: {
@@ -145,7 +148,12 @@ router.put('/:id', rbacMiddleware('expenses.update'), async (req: Request, res: 
     const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
     const { categoryId, amount, description, expenseDate } = req.body;
     const data: any = {};
-    if (categoryId) data.categoryId = BigInt(categoryId);
+    if (categoryId) {
+      // FK ownership: category must belong to this tenant.
+      const category = await prisma.expenseCategory.findFirst({ where: { id: BigInt(categoryId), tenantId: ctx.tenantId }, select: { id: true } });
+      if (!category) { res.status(403).json({ status: 403, detail: 'Expense category not found or not accessible' }); return; }
+      data.categoryId = BigInt(categoryId);
+    }
     if (amount !== undefined) data.amount = amount;
     if (description !== undefined) data.description = description;
     if (expenseDate) data.expenseDate = new Date(expenseDate);

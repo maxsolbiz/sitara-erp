@@ -161,6 +161,16 @@ router.post('/', rbacMiddleware('sales.returns.create'), async (req: Request, re
     if (!sale) { res.status(404).json({ status: 404, detail: 'Sale not found' }); return; }
     if (!sale.customerId) { res.status(400).json({ status: 400, detail: 'Sale has no associated customer' }); return; }
     const saleItemMap = new Map(sale.items.map((si) => [si.id.toString(), si]));
+    // FK ownership: items referencing sale items outside this sale fall back
+    // to body-supplied productId/warehouseId — verify those belong to us.
+    for (const i of items) {
+      if (!saleItemMap.has(String(i.saleItemId))) {
+        const prod = await prisma.product.findFirst({ where: { id: BigInt(i.productId || 0), tenantId: ctx.tenantId }, select: { id: true } });
+        if (!prod) { res.status(403).json({ status: 403, detail: `Product ${i.productId} not found or not accessible` }); return; }
+        const wh = await prisma.warehouse.findFirst({ where: { id: BigInt(i.warehouseId || 0), tenantId: ctx.tenantId }, select: { id: true } });
+        if (!wh) { res.status(403).json({ status: 403, detail: `Warehouse ${i.warehouseId} not found or not accessible` }); return; }
+      }
+    }
     const returnNumber = `RET-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${String(Math.floor(Math.random() * 9999)).padStart(4, '0')}`;
     const totalAmount = items.reduce((s: number, i: any) => s + (i.quantity || 0) * (i.unitPrice || 0), 0);
     const result = await prisma.salesReturn.create({

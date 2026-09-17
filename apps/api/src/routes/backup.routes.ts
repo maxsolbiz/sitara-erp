@@ -65,7 +65,8 @@ router.delete('/:id', rbacMiddleware('settings.backup'), async (req: Request, re
     const record = await prisma.backupRecord.findFirst({ where: { id: BigInt(req.params.id), tenantId: ctx.tenantId } });
     if (!record) { res.status(404).json({ success: false, error: 'Not found' }); return; }
     if (fs.existsSync(record.storagePath)) { fs.unlinkSync(record.storagePath); const dir = path.dirname(record.storagePath); if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir); }
-    await prisma.backupRecord.delete({ where: { id: BigInt(req.params.id) } });
+    // Act on the verified row's id (scoped check above), not a re-parsed param.
+    await prisma.backupRecord.delete({ where: { id: record.id } });
     res.json({ success: true, message: 'Backup deleted' });
   } catch (error: any) { res.status(500).json({ success: false, error: error.message }); }
 });

@@ -4,12 +4,21 @@ import { useParams } from 'next/navigation'; import { formatPkr } from '@/lib/ut
 export default function PublicReceiptPage() {
   const params = useParams();
   const [sale, setSale] = useState<any>(null);
+  const [rejected, setRejected] = useState(false);
 
   useEffect(() => {
-    fetch(`/api/v1/public/receipts/${params.id}`).then((r) => r.json()).then((res) => { if (res?.data) setSale(res.data); }).catch(() => {});
+    // C6: the public API requires the ?t= HMAC token minted via the
+    // authenticated receipt-link endpoint; bare-id links 404.
+    // (window.location is used instead of useSearchParams so this page
+    // stays statically prerenderable.)
+    const t = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('t') || '' : '';
+    fetch(`/api/v1/public/receipts/${params.id}?t=${encodeURIComponent(t)}`).then((r) => {
+      if (!r.ok) { setRejected(true); return null; }
+      return r.json();
+    }).then((res) => { if (res?.data) setSale(res.data); }).catch(() => { setRejected(true); });
   }, [params.id]);
 
-  if (!sale) return <div className="flex justify-center p-8 font-mono">Loading receipt...</div>;
+  if (!sale) return <div className="flex justify-center p-8 font-mono">{rejected ? 'Receipt link is invalid or expired.' : 'Loading receipt...'}</div>;
 
   return (<div style={{ fontFamily: "'Courier New', monospace", fontSize: '11px', color: '#000', background: '#fff', maxWidth: '80mm', margin: '0 auto', padding: '8px' }}>
     <div style={{ textAlign: 'center', marginBottom: '8px' }}>

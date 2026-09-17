@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
 import prisma from '../lib/prisma';
 import { getTenantContext } from '../lib/prisma';
+import { config } from '../config';
 import { saleService } from '../services/sale.service';
 import { printerService } from '../services/printer.service';
 import { rbacMiddleware } from '../middleware/rbac';
@@ -334,15 +336,58 @@ router.post('/:id/print', rbacMiddleware('sales.view'), async (req: Request, res
   } catch (error: any) { res.json({ data: { success: false, reason: error.message } }); }
 });
 
+// GET /sales/:id/receipt-link — signed public-receipt URL for QR/print
+// flows (C6). Authenticated + tenant-scoped; the token makes the public
+// link unguessable without any schema change.
+router.get('/:id/receipt-link', rbacMiddleware('sales.view'), async (req: Request, res: Response) => {
+  try {
+    const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
+    const sale = await prisma.sale.findFirst({
+      where: { id: BigInt(req.params.id), tenantId: ctx.tenantId, status: { in: ['COMPLETED', 'CANCELLED'] } },
+      select: { id: true, tenantId: true },
+    });
+    if (!sale) { res.status(404).json({ status: 404, detail: 'Sale not found' }); return; }
+    const token = signReceiptLink(sale.tenantId, sale.id);
+    res.json({ data: { token, path: `/public/receipt/${sale.id.toString()}?t=${token}` } });
+  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+});
+
 // Public receipt handler — registered separately without auth middleware
+// C6: sequential sale ids are enumerable, so the endpoint requires a
+// ?t= HMAC token (HMAC-SHA256 over `receipt:{tenantId}:{saleId}` with a
+// domain-separated key derived from the server JWT secret).
+// Missing/invalid tokens return the same 404 as a missing row — never
+// confirm existence. Pre-fix bare-id links 404.
+function signReceiptLink(tenantId: bigint, saleId: bigint): string {
+  // Domain-separated key: never sign with the raw JWT secret directly, so
+  // receipt-link rotation and JWT-secret rotation stay independent.
+  const receiptKey = crypto.createHmac('sha256', config.jwt.secret).update('receipt-token-v1').digest();
+  return crypto.createHmac('sha256', receiptKey)
+    .update(`receipt:${tenantId.toString()}:${saleId.toString()}`)
+    .digest('hex');
+}
+
+function verifyReceiptToken(token: unknown, tenantId: bigint, saleId: bigint): boolean {
+  if (typeof token !== 'string' || token.length === 0) return false;
+  const expected = signReceiptLink(tenantId, saleId);
+  const a = Buffer.from(token, 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 export async function publicReceiptHandler(req: Request, res: Response) {
   try {
-    const saleId = BigInt(req.params.id);
+    // NOTE: router.param('id') validation does NOT apply here — this
+    // handler is mounted directly on app, not on the router.
+    const saleId = parseIdParam(req.params.id);
+    if (saleId === null) { res.status(400).json({ status: 400, title: 'Bad Request', detail: 'Invalid receipt link' }); return; }
     const sale = await prisma.sale.findFirst({
       where: { id: saleId, status: { in: ['COMPLETED', 'CANCELLED'] } },
       include: { customer: { select: { fullName: true } }, items: { where: { quantity: { gt: 0 } }, include: { product: { select: { name: true } } } }, payments: { select: { paymentMethod: true, amount: true } }, tenant: { select: { name: true, settings: true } } },
     });
-    if (!sale) { res.status(404).json({ status: 404, detail: 'Receipt not found' }); return; }
+    if (!sale || !verifyReceiptToken(req.query.t, sale.tenantId, sale.id)) {
+      res.status(404).json({ status: 404, detail: 'Receipt not found' }); return;
+    }
     const settings = (sale.tenant?.settings || {}) as any;
     res.json({ data: { companyName: settings.companyName || sale.tenant?.name || 'Business', companyAddress: settings.address || '', companyPhone: settings.phone || '', companyEmail: settings.email || '', saleNumber: sale.saleNumber, saleDate: sale.saleDate, customerName: sale.customer?.fullName || 'Walk-in', items: sale.items.map((i) => ({ productName: i.product?.name || 'Item', quantity: i.quantity, unitPrice: Number(i.unitPrice), lineTotal: Number(i.lineTotal) })), subtotal: Number(sale.subtotal), discount: Number(sale.discountAmount), total: Number(sale.totalAmount), paymentMethod: sale.payments[0]?.paymentMethod || 'N/A', paid: Number(sale.paidAmount), status: sale.status } });
   } catch { res.status(500).json({ status: 500 }); }

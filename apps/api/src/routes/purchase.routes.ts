@@ -121,6 +121,15 @@ router.post('/receipts', rbacMiddleware('purchases.receive'), async (req: Reques
     if (!po) { res.status(404).json({ status: 404, detail: 'PO not found' }); return; }
     if (po.status === 'CANCELLED') { res.status(400).json({ status: 400, detail: 'PO is cancelled' }); return; }
 
+    // FK ownership: every receipt warehouse and product must belong to
+    // this tenant (the PO check above does not cover body-supplied FKs).
+    for (const item of items) {
+      const wh = await prisma.warehouse.findFirst({ where: { id: BigInt(item.warehouseId || 0), tenantId }, select: { id: true } });
+      if (!wh) { res.status(403).json({ status: 403, detail: `Warehouse ${item.warehouseId} not found or not accessible` }); return; }
+      const prod = await prisma.product.findFirst({ where: { id: BigInt(item.productId), tenantId }, select: { id: true } });
+      if (!prod) { res.status(403).json({ status: 403, detail: `Product ${item.productId} not found or not accessible` }); return; }
+    }
+
     const result = await prisma.$transaction(async (tx: any) => {
       const receiptNumber = `GRN-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${String(Math.floor(Math.random() * 9999)).padStart(4, '0')}`;
       let totalValue = 0; let itemCount = 0;
@@ -257,6 +266,19 @@ router.post('/returns', rbacMiddleware('purchases.returns'), async (req: Request
 
     const vendor = await prisma.vendor.findFirst({ where: { id: BigInt(vendorId), tenantId } });
     if (!vendor) { res.status(404).json({ status: 404, detail: 'Vendor not found' }); return; }
+
+    // FK ownership: optional PO plus every item warehouse/product must
+    // belong to this tenant.
+    if (purchaseOrderId) {
+      const po = await prisma.purchaseOrder.findFirst({ where: { id: BigInt(purchaseOrderId), tenantId }, select: { id: true } });
+      if (!po) { res.status(403).json({ status: 403, detail: 'Purchase order not found or not accessible' }); return; }
+    }
+    for (const item of items) {
+      const wh = await prisma.warehouse.findFirst({ where: { id: BigInt(item.warehouseId || 0), tenantId }, select: { id: true } });
+      if (!wh) { res.status(403).json({ status: 403, detail: `Warehouse ${item.warehouseId} not found or not accessible` }); return; }
+      const prod = await prisma.product.findFirst({ where: { id: BigInt(item.productId), tenantId }, select: { id: true } });
+      if (!prod) { res.status(403).json({ status: 403, detail: `Product ${item.productId} not found or not accessible` }); return; }
+    }
 
     const result = await prisma.$transaction(async (tx: any) => {
       const returnNumber = `PRET-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${String(Math.floor(Math.random() * 9999)).padStart(4, '0')}`;

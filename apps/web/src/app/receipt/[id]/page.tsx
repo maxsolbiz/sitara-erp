@@ -7,9 +7,13 @@ import { formatPkr } from '@/lib/utils';
 export default function ReceiptPage() {
   const params = useParams();
   const [sale, setSale] = useState<any>(null);
+  // Signed public-receipt URL (C6): minted per-sale via the authenticated
+  // receipt-link endpoint so the QR code never exposes a bare enumerable id.
+  const [receiptUrl, setReceiptUrl] = useState('');
 
   useEffect(() => {
     apiGet(`/sales/${params.id}`).then((r: any) => { if (r?.data) setSale(r.data); }).catch(() => {});
+    apiGet(`/sales/${params.id}/receipt-link`).then((r: any) => { if (r?.data?.path) setReceiptUrl(r.data.path); }).catch(() => {});
   }, [params.id]);
 
   useEffect(() => {
@@ -145,11 +149,12 @@ export default function ReceiptPage() {
         )}
       </div>
 
-      {/* QR Code */}
+      {/* QR Code — rendered only once the signed receipt URL is minted */}
+      {receiptUrl && (
       <div style={{ textAlign: 'center', marginTop: '8px', background: '#f9f9f9', padding: '6px', borderRadius: '4px' }}>
         <img
           src={`https://quickchart.io/qr?text=${encodeURIComponent(
-            `${typeof window !== 'undefined' ? window.location.origin : ''}/public/receipt/${params.id}`
+            `${typeof window !== 'undefined' ? window.location.origin : ''}${receiptUrl}`
           )}&size=80&margin=2`}
           alt="QR"
           width="80"
@@ -158,6 +163,7 @@ export default function ReceiptPage() {
         />
         <p style={{ fontSize: '8px', margin: '2px 0 0 0' }}>Scan for digital receipt</p>
       </div>
+      )}
 
       {/* Footer */}
       <div style={{ textAlign: 'center', marginTop: '8px', borderTop: '1px dashed #000', paddingTop: '6px' }}>

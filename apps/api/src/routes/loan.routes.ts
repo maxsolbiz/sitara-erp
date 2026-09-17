@@ -78,6 +78,11 @@ router.post('/', rbacMiddleware('loans.manage'), async (req: Request, res: Respo
     const { type, partyId, principalAmount, interestRate, startDate, dueDate, notes } = req.body;
     if (!type || !principalAmount || principalAmount <= 0) { res.status(400).json({ status: 400, detail: 'Type and positive amount required' }); return; }
     const tenantId = ctx.tenantId;
+    // FK ownership: the loan party must belong to this tenant.
+    if (partyId) {
+      const party = await prisma.loanParty.findFirst({ where: { id: BigInt(partyId), tenantId }, select: { id: true } });
+      if (!party) { res.status(403).json({ status: 403, detail: 'Loan party not found or not accessible' }); return; }
+    }
     const loanNumber = `LN-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${String(Math.floor(Math.random() * 9999)).padStart(4, '0')}`;
     const result = await prisma.$transaction(async (tx: any) => {
       const loan = await tx.loan.create({

@@ -84,8 +84,9 @@ export async function createBackup(options: { tenantId: bigint; backupType?: str
 }
 
 export async function validateBackup(backupId: number, tenantId: bigint): Promise<{ valid: boolean; report: any }> {
-  const record = await prisma.backupRecord.findUnique({ where: { id: BigInt(backupId) } });
-  if (!record || record.tenantId !== tenantId) throw new Error('Backup record not found');
+  // Tenant-scoped read (was findUnique by bare id + manual post-check).
+  const record = await prisma.backupRecord.findFirst({ where: { id: BigInt(backupId), tenantId } });
+  if (!record) throw new Error('Backup record not found');
   if (!fs.existsSync(record.storagePath)) throw new Error('Backup file not found on disk');
   const compressed = fs.readFileSync(record.storagePath);
   const warnings: string[] = [];
@@ -117,8 +118,9 @@ export async function executeRestore(options: { backupId: number; confirmToken: 
   if (!tokenData || tokenData.backupId !== backupId) throw new Error('Invalid or expired confirmation token');
   if (tokenData.expiresAt < Date.now()) { restoreTokens.delete(confirmToken); throw new Error('Confirmation token expired'); }
   restoreTokens.delete(confirmToken);
-  const record = await prisma.backupRecord.findUnique({ where: { id: BigInt(backupId) } });
-  if (!record || record.status !== 'completed' || record.tenantId !== tenantId) throw new Error('Backup not found or not in completed state');
+  // Tenant-scoped read (was findUnique by bare id + manual post-check).
+  const record = await prisma.backupRecord.findFirst({ where: { id: BigInt(backupId), tenantId } });
+  if (!record || record.status !== 'completed') throw new Error('Backup not found or not in completed state');
   if (!fs.existsSync(record.storagePath)) throw new Error('Backup file missing from disk');
   const compressed = fs.readFileSync(record.storagePath);
   const jsonBuffer = await gunzip(compressed);
@@ -140,7 +142,7 @@ export async function executeRestore(options: { backupId: number; confirmToken: 
       restoredCounts[model] = records.length;
     } catch { console.error(`[Restore] Failed to restore ${model}`); }
   }
-  await prisma.backupRecord.update({ where: { id: BigInt(backupId) }, data: { restoredAt: new Date(), restoredBy } });
+  await prisma.backupRecord.update({ where: { id: record.id }, data: { restoredAt: new Date(), restoredBy } });
   return { success: true, message: 'Restore completed successfully', counts: restoredCounts };
 }
 
