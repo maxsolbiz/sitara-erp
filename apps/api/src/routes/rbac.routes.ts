@@ -53,13 +53,18 @@ router.post('/roles', rbacMiddleware('rbac.manage'), async (req: Request, res: R
     const { name, description, permissionIds } = req.body;
     if (!name) { res.status(400).json({ status: 400, detail: 'Name is required' }); return; }
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-    const role = await prisma.role.create({ data: { tenantId: ctx.tenantId, name, slug, description: description || null, isSystem: false } });
-    let permSlugs: string[] = [];
+    // FK ownership FIRST: permissions must belong to this tenant. Verified
+    // before role.create so a rejected attempt leaves no orphan role row.
     if (permissionIds && Array.isArray(permissionIds)) {
-      // FK ownership: permissions must belong to this tenant.
       for (const pid of permissionIds) {
         const perm = await prisma.permission.findFirst({ where: { id: BigInt(pid), tenantId: ctx.tenantId }, select: { id: true } });
         if (!perm) { res.status(403).json({ status: 403, detail: `Permission ${pid} not found or not accessible` }); return; }
+      }
+    }
+    const role = await prisma.role.create({ data: { tenantId: ctx.tenantId, name, slug, description: description || null, isSystem: false } });
+    let permSlugs: string[] = [];
+    if (permissionIds && Array.isArray(permissionIds)) {
+      for (const pid of permissionIds) {
         await prisma.rolePermission.create({ data: { roleId: role.id, permissionId: BigInt(pid) } });
       }
       const perms = await prisma.permission.findMany({ where: { tenantId: ctx.tenantId, id: { in: permissionIds.map((p: any) => BigInt(p)) } }, select: { slug: true } });
