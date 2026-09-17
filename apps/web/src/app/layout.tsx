@@ -21,6 +21,19 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Pre-paint theme-color restore (FOUC guard). SECURITY: this must
+            stay a fixed literal string — never interpolate server data or
+            user input here. It only reads the personal localStorage choice;
+            the tenant default loads client-side after hydration (accepted
+            v1 tradeoff: first-load flash for users without a personal
+            choice when tenant default != default). */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('sitara-theme-color');if(t==='emerald'||t==='amber'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();`,
+          }}
+        />
+      </head>
       <body className="min-h-screen bg-background antialiased">
         <Providers>{children}</Providers>
       </body>

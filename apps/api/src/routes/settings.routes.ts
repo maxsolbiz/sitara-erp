@@ -130,8 +130,7 @@ router.post('/email/test', rbacMiddleware('settings.update'), async (req: Reques
   }
 });
 
-router.get('/', rbacMiddleware('settings.view'), async (_req: Request, res: Response) => {
-  try {
+router.get('/', rbacMiddleware('settings.view'), async (_req: Request, res: Response) => {  try {
     const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
     const settings = await settingService.getSettings(ctx.tenantId);
     const grouped: Record<string, any> = {};
@@ -143,6 +142,36 @@ router.get('/', rbacMiddleware('settings.view'), async (_req: Request, res: Resp
     if (grouped.email) grouped.email = maskEmailSecrets(grouped.email);
     res.json({ data: grouped });
   } catch { res.json({ data: {} }); }
+});
+
+// ---- Appearance (tenant default color theme) ----
+// Explicit validated handlers registered BEFORE the generic /:category
+// catch-alls below. The generic handlers would also store the key, but
+// without allowlist validation.
+const APPEARANCE_THEMES = ['default', 'emerald', 'amber'] as const;
+
+router.get('/appearance', rbacMiddleware('settings.view'), async (_req: Request, res: Response) => {
+  try {
+    const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
+    const settings = await settingService.getSettings(ctx.tenantId, 'appearance_');
+    res.json({ data: settings });
+  } catch { res.json({ data: {} }); }
+});
+
+router.put('/appearance', rbacMiddleware('settings.update'), async (req: Request, res: Response) => {
+  try {
+    const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
+    const theme = req.body?.appearance_theme ?? req.body?.theme;
+    if (theme !== undefined && !(APPEARANCE_THEMES as readonly string[]).includes(String(theme))) {
+      res.status(400).json({ status: 400, detail: `Unknown theme. Allowed: ${APPEARANCE_THEMES.join(', ')}` });
+      return;
+    }
+    const body: Record<string, any> = {};
+    for (const [k, v] of Object.entries(req.body)) body[k.startsWith('appearance_') ? k : `appearance_${k}`] = v;
+    await settingService.upsertSettings(ctx.tenantId, body);
+    logger.info('Settings updated', { category: 'appearance', tenantId: ctx.tenantId.toString() });
+    res.json({ data: { message: 'Appearance settings updated' } });
+  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.get('/:category', rbacMiddleware('settings.view'), async (req: Request, res: Response) => {
