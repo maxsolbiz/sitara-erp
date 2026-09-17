@@ -85,8 +85,8 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 if (process.env.NODE_ENV !== 'test') {
-  app.listen(config.port, () => {
-    logger.info(`Sitara API running on port ${config.port}`, {
+  app.listen(config.port, config.host, () => {
+    logger.info(`Sitara API running on ${config.host}:${config.port}`, {
       env: config.nodeEnv,
       apiPrefix: config.apiPrefix,
     });

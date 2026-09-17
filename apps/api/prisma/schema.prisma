@@ -118,6 +118,11 @@ model UserSession {
   tenantId      BigInt   @map("tenant_id")
   userId        BigInt   @map("user_id")
   sessionToken  String   @unique @map("session_token") @db.VarChar(255)
+  // JTI of the currently valid refresh token for this session. Used for
+  // refresh-token reuse detection (Phase 1): a presented refresh token whose
+  // jti differs from this value triggers global revocation. Nullable so
+  // pre-migration rows remain valid (they stamp on next rotation).
+  refreshTokenJti String? @map("refresh_token_jti") @db.VarChar(255)
   ipAddress     String   @map("ip_address") @db.VarChar(45)
   userAgent     String   @map("user_agent") @db.Text
   startedAt     DateTime @default(now()) @map("started_at")

@@ -255,6 +255,11 @@ router.put('/password', authMiddleware, async (req: Request, res: Response) => {
     await prisma.user.update({ where: { id: userId }, data: { passwordHash, mustChangePassword: false } });
     // Invalidate all other sessions (deactivate rows so their tokens are rejected)
     await prisma.userSession.updateMany({ where: { userId, NOT: { id: BigInt(0) } }, data: { isActive: false } }).catch(() => {});
+    // ...and drop the single-slot refresh token too, so a password change is
+    // a log-out-everywhere (including the current device): with no active
+    // row and no Redis slot, the next refresh is refused and the client
+    // lands on /login via the standard 401 path.
+    await getRedis().del(`refresh:${userId}`).catch(() => {});
     res.json({ data: { message: 'Password changed' } });
   } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
 });

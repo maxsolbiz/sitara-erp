@@ -241,36 +241,52 @@ export class AuthService {
     });
 
     const redis = getRedis();
+
+    // Session tracking, fail-closed (C1/C2): every access token must map to
+    // a live session row, so a failed insert fails the login outright —
+    // never warn-and-continue with a rowless token.
+    // Single-session (kill-prior-on-new-login): create the new row first,
+    // then deactivate all OTHER active rows for this user. Ordering avoids
+    // a zero-live-session window; the residual risk (two logins in the same
+    // millisecond killing each other) fails closed and self-heals on retry.
+    // Runs BEFORE the Redis slot overwrite so a DB failure leaves the
+    // previous session fully intact for a clean retry.
+    const decodedAccess = verifyAccessToken(accessToken);
+    const decodedRefresh = verifyRefreshToken(refreshToken);
+    if (!decodedAccess?.jti || !decodedRefresh?.jti) {
+      logger.error('Session token decode failed immediately after minting', { userId: user.id.toString() });
+      throw new Error('SESSION_CREATE_FAILED');
+    }
+    try {
+      const session = await prisma.userSession.create({
+        data: {
+          tenantId: user.tenantId,
+          userId: user.id,
+          sessionToken: decodedAccess.jti,
+          refreshTokenJti: decodedRefresh.jti,
+          ipAddress: meta?.ipAddress || '',
+          userAgent: meta?.userAgent || '',
+          // Derived from the actual token exp claim — never a hardcoded TTL,
+          // so JWT_EXPIRES_IN changes can't desync row vs token lifetimes.
+          expiresAt: decodedAccess.exp ? new Date(decodedAccess.exp * 1000) : new Date(Date.now() + 15 * 60 * 1000),
+          isActive: true,
+        },
+      });
+      await prisma.userSession.updateMany({
+        where: { userId: user.id, tenantId: user.tenantId, isActive: true, NOT: { id: session.id } },
+        data: { isActive: false },
+      });
+    } catch (e: any) {
+      logger.error('Session row creation failed — login rejected (fail-closed)', { error: (e as Error).message });
+      throw new Error('SESSION_CREATE_FAILED');
+    }
+
     await redis.set(
       `refresh:${user.id}`,
       refreshToken,
       'EX',
       7 * 24 * 60 * 60
     );
-
-    // Session tracking (additive): record this login so the Active Sessions
-    // list and terminate endpoint have real rows. Must never break login —
-    // a failed insert only logs a warning. Not enforced anywhere yet.
-    try {
-      const decoded = verifyAccessToken(accessToken);
-      if (decoded?.jti) {
-        await prisma.userSession.create({
-          data: {
-            tenantId: user.tenantId,
-            userId: user.id,
-            sessionToken: decoded.jti,
-            ipAddress: meta?.ipAddress || '',
-            userAgent: meta?.userAgent || '',
-            // Derived from the actual token exp claim — never a hardcoded TTL,
-            // so JWT_EXPIRES_IN changes can't desync row vs token lifetimes.
-            expiresAt: decoded.exp ? new Date(decoded.exp * 1000) : new Date(Date.now() + 15 * 60 * 1000),
-            isActive: true,
-          },
-        });
-      }
-    } catch (e: any) {
-      logger.warn('Session row creation failed (login still succeeds)', { error: e.message });
-    }
 
     void logActivity({ tenantId: user.tenantId, userId: user.id, action: 'LOGIN', entityType: 'user', entityId: user.id, description: `User ${user.username} logged in`, ipAddress: meta?.ipAddress, userAgent: meta?.userAgent });
 
@@ -314,11 +330,30 @@ export class AuthService {
     // Most-recent-active wins because refresh tokens are single-slot per
     // user (refresh:{userId}) — only one refresh token is valid at a time.
     const activeRow = await prisma.userSession.findFirst({
-      where: { userId: user.id, isActive: true },
+      where: { userId: user.id, tenantId: user.tenantId, isActive: true },
       orderBy: { startedAt: 'desc' },
-      select: { id: true },
+      select: { id: true, refreshTokenJti: true },
     });
     if (!activeRow) {
+      throw new Error('INVALID_REFRESH_TOKEN');
+    }
+
+    // Refresh-token reuse detection: the presented token's jti must match
+    // the row's currently valid refresh jti. A signature-valid but stale
+    // jti means the token was already rotated (i.e. replayed/stolen) —
+    // revoke EVERYTHING for this user and force re-login. Rows created
+    // before the refreshTokenJti column existed (null) can't be compared:
+    // allow once and stamp below (self-healing, fail-safe direction).
+    if (activeRow.refreshTokenJti && activeRow.refreshTokenJti !== payload.jti) {
+      await prisma.userSession.updateMany({
+        where: { userId: user.id, tenantId: user.tenantId, isActive: true },
+        data: { isActive: false },
+      }).catch(() => {});
+      await redis.del(`refresh:${user.id}`).catch(() => {});
+      logger.warn('SECURITY: refresh token reuse detected — all sessions revoked', {
+        userId: user.id.toString(),
+        tenantId: user.tenantId.toString(),
+      });
       throw new Error('INVALID_REFRESH_TOKEN');
     }
 
@@ -341,14 +376,17 @@ export class AuthService {
     );
 
     // Rotate the session row onto the new access-token jti so the row keeps
-    // tracking the live token. Must not break refresh — warn only on failure.
+    // tracking the live token, and stamp the new refresh jti for reuse
+    // detection. Must not break refresh — warn only on failure.
     try {
       const decoded = verifyAccessToken(newAccessToken);
+      const decodedRefresh = verifyRefreshToken(newRefreshToken);
       if (decoded?.jti) {
         await prisma.userSession.update({
           where: { id: activeRow.id },
           data: {
             sessionToken: decoded.jti,
+            ...(decodedRefresh?.jti ? { refreshTokenJti: decodedRefresh.jti } : {}),
             expiresAt: decoded.exp ? new Date(decoded.exp * 1000) : new Date(Date.now() + 15 * 60 * 1000),
             lastActivity: new Date(),
           },

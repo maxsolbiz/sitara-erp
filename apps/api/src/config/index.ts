@@ -7,6 +7,10 @@ dotenv.config();
 
 export const config = {
   port: parseInt(process.env.PORT || '3000', 10),
+  // Bind host for app.listen(). Defaults to loopback ONLY — there must be no
+  // 0.0.0.0 fallback anywhere in this path (C9: the API was publicly bound).
+  // Apache proxies to 127.0.0.1:3103, so localhost is sufficient.
+  host: process.env.API_HOST || '127.0.0.1',
   apiPrefix: process.env.API_PREFIX || 'api/v1',
   nodeEnv: process.env.NODE_ENV || 'development',
 

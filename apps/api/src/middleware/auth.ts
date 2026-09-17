@@ -87,21 +87,24 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
     });
   };
 
-  // Session revocation check (DB lookup): a token whose session row exists
-  // but isActive=false was explicitly terminated/logged-out → reject.
-  // Tokens with no row at all (pre-feature tokens, test-generated tokens)
-  // pass through, preserving backward compatibility.
+  // Session revocation check (DB lookup), fail-closed (C1):
+  // - row exists and isActive=false (terminated/logged-out) → reject
+  // - NO row at all (rotated-out jti, terminated session, forged/orphaned
+  //   token) → reject. There is no rowless pass-through anymore: every
+  //   access token must map to a live session row.
+  // The lookup is bound to userId+tenantId so a jti can never cross
+  // account boundaries even if UUID uniqueness were ever violated.
   if (payload.jti) {
     const jti = payload.jti;
     prisma.userSession.findFirst({
-      where: { sessionToken: jti },
+      where: { sessionToken: jti, userId: BigInt(payload.userId), tenantId: BigInt(payload.tenantId) },
       select: { isActive: true },
     }).then((session) => {
-      if (session && !session.isActive) {
+      if (!session || !session.isActive) {
         res.status(401).json({
           type: 'https://httpstatuses.io/401',
           title: 'Unauthorized',
-          detail: 'Session has been terminated',
+          detail: 'Session is no longer valid',
           status: 401,
         });
         return;
