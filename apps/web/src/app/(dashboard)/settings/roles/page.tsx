@@ -92,6 +92,7 @@ export default function SettingsRolesPage() {
       <Button size="sm" onClick={openCreate}><Plus className="h-4 w-4 mr-1.5" />Add Role</Button>
     </PageHeader>
     <div className="rounded-lg border">
+      <p className="text-xs text-muted-foreground px-3 pt-3">Built-in roles cannot be edited or deleted. Roles with assigned users cannot be deleted — unassign their users first.</p>
       <table className="w-full text-sm">
         <thead><tr className="border-b bg-muted/50">
           <th className="text-left p-3 font-medium">Role</th><th className="text-left p-3 font-medium">Users</th>
@@ -110,8 +111,8 @@ export default function SettingsRolesPage() {
               <td className="p-3">{r.isSystem ? <span className="text-xs text-muted-foreground">Built-in</span> : <span className="text-xs text-emerald-600">Custom</span>}</td>
               <td className="p-3 text-right space-x-1">
                 <Button variant="ghost" size="sm" onClick={() => openPermissions(r)}><Shield className="h-3.5 w-3.5" /></Button>
-                <Button variant="ghost" size="sm" onClick={() => openEdit(r)} disabled={r.isSystem}><Pencil className="h-3.5 w-3.5" /></Button>
-                <Button variant="ghost" size="sm" onClick={() => handleDelete(r.id)} disabled={r.isSystem || r.userCount > 0}><Trash2 className="h-3.5 w-3.5 text-red-500" /></Button>
+                <Button variant="ghost" size="sm" onClick={() => openEdit(r)} disabled={r.isSystem} title={r.isSystem ? 'Built-in roles cannot be edited' : 'Edit role'}><Pencil className="h-3.5 w-3.5" /></Button>
+                <Button variant="ghost" size="sm" onClick={() => handleDelete(r.id)} disabled={r.isSystem || r.userCount > 0} title={r.isSystem ? 'Built-in roles cannot be deleted' : r.userCount > 0 ? 'Cannot delete roles with assigned users' : 'Delete role'}><Trash2 className="h-3.5 w-3.5 text-red-500" /></Button>
               </td>
             </tr>
           ))}
