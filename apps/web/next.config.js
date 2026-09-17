@@ -30,8 +30,14 @@ const nextConfig = {
     domains: [process.env.NEXT_PUBLIC_API_URL?.replace('https://', '').split('/')[0] || 'localhost'],
   },
   async rewrites() {
+    // Uploaded files (product images, logos) are stored and served by the
+    // API via express.static — the web app has no /uploads route, so proxy
+    // them there. (Serving via Apache Alias is not possible: the files live
+    // under /root, which the www-data user cannot traverse.)
+    const apiHost = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1').replace(/\/api\/v1$/, '');
     return [
       { source: '/favicon.ico', destination: '/favicon.svg' },
+      { source: '/uploads/:path*', destination: `${apiHost}/uploads/:path*` },
       { source: '/api/v1/:path*', destination: `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1'}/:path*` },
       { source: '/api/:path*', destination: `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1'}/:path*` },
     ];
