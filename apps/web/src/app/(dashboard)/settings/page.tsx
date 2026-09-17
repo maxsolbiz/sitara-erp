@@ -336,6 +336,12 @@ export default function SettingsPage() {
               <Button variant="outline" size="sm" asChild><a href="/settings/locale">Manage</a></Button>
             </CardContent>
           </Card>
+          <Card><CardHeader><CardTitle className="text-lg"><SettingsIcon className="h-5 w-5 inline mr-2" />Appearance</CardTitle></CardHeader>
+            <CardContent className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">Color theme for this device + organization default</p>
+              <Button variant="outline" size="sm" asChild><a href="/settings/appearance">Manage</a></Button>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 

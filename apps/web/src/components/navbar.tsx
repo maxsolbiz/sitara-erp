@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useTheme } from 'next-themes';
+import { useThemeColor, THEME_COLORS, type ThemeColor } from '@/lib/theme-color';
 import { useAuth, hasPermission } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -15,7 +16,7 @@ import {
 import { NotificationBell } from '@/components/notification-bell';
 import { apiGet } from '@/lib/api';
 import {
-  Search as SearchIcon, HelpCircle, Moon, Sun, LogOut, User,
+  Search as SearchIcon, HelpCircle, Moon, Sun, LogOut, User, Palette, Check,
   Settings, LayoutDashboard, ShoppingCart, Plus, Package as PackageIcon,
   Users as UsersIcon, Truck as TruckIcon, Package, ShoppingBag,
   Building2, Wallet, Loader2,
@@ -27,6 +28,7 @@ interface NavbarProps {
 
 export function Navbar({ onMenuToggle }: NavbarProps) {
   const { theme, setTheme } = useTheme();
+  const { themeColor, setThemeColor } = useThemeColor();
   const { user, logout } = useAuth();
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
@@ -146,7 +148,35 @@ export function Navbar({ onMenuToggle }: NavbarProps) {
 
         <NotificationBell />
 
-        {/* Theme Toggle */}
+        {/* Theme Color */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-9 w-9" title="Color theme">
+              <Palette className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuLabel>Color theme</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {(THEME_COLORS as readonly ThemeColor[]).map((t) => (
+              <DropdownMenuItem key={t} onClick={() => setThemeColor(t)} className="flex items-center gap-2 capitalize">
+                <span
+                  className={
+                    t === 'emerald' ? 'h-3.5 w-3.5 rounded-full bg-emerald-600'
+                    : t === 'amber' ? 'h-3.5 w-3.5 rounded-full bg-amber-500'
+                    : 'h-3.5 w-3.5 rounded-full bg-blue-600'
+                  }
+                />
+                <span className="flex-1">{t === 'default' ? 'Default blue' : t}</span>
+                {themeColor === t && <Check className="h-3.5 w-3.5" />}
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild><Link href="/settings/appearance"><Settings className="h-4 w-4 mr-2" />Appearance settings</Link></DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Theme Toggle (light/dark — orthogonal to color theme) */}
         <Button variant="ghost" size="icon" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="h-9 w-9">
           {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>
