@@ -6,7 +6,7 @@ import { customerService } from '../services/customer.service';
 import { rbacMiddleware } from '../middleware/rbac';
 import { validateMiddleware } from '../middleware/validate';
 import { ACCOUNT_CODES } from '../constants/accounts';
-import { parseIdParam } from '../utils/helpers';
+import { parseIdParam, requireAuthUserId } from '../utils/helpers';
 import logger from '../utils/logger';
 
 const createCustomerSchema = z.object({
@@ -413,7 +413,7 @@ router.post('/:id/payments', rbacMiddleware('customers.payments'), validateMiddl
           paymentMethod: paymentMethod || 'CASH',
           referenceNumber: referenceNumber || null,
           notes: notes || null,
-          createdBy: req.user ? BigInt(req.user.userId) : 1,
+          createdBy: requireAuthUserId(req),
         },
       });
 
@@ -434,7 +434,7 @@ router.post('/:id/payments', rbacMiddleware('customers.payments'), validateMiddl
           balanceBefore: before, balanceAfter,
           referenceId: null, referenceType: 'payment',
           notes: notes || null,
-          createdBy: req.user ? BigInt(req.user.userId) : 1,
+          createdBy: requireAuthUserId(req),
         },
       });
 
@@ -463,7 +463,7 @@ router.post('/:id/payments', rbacMiddleware('customers.payments'), validateMiddl
             tenantId: ctx.tenantId, entryNumber: `PAY-${Date.now()}`, entryDate: new Date(),
             description: `Payment from ${customer.fullName}`,
             totalDebit, totalCredit,
-            createdBy: req.user ? BigInt(req.user.userId) : 1,
+            createdBy: requireAuthUserId(req),
             lines: { create: lines },
           },
         });

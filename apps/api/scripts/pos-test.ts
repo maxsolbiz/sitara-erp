@@ -4,7 +4,7 @@ import express from 'express';
 import http from 'http';
 import { registerRoutes } from '../src/routes';
 import { setTenantContext } from '../src/lib/prisma';
-import { generateAccessToken, hashPassword } from '../src/utils/helpers';
+import { authService } from '../src/services/auth.service';
 import { getDefaultWarehouse } from '../src/utils/warehouse';
 
 const prisma = new PrismaClient();
@@ -97,8 +97,13 @@ async function setup() {
   productAId = (await prisma.product.findFirst({ where: { sku: 'TST-PRODA', tenantId } }))!.id;
   productBId = (await prisma.product.findFirst({ where: { sku: 'TST-PRODB', tenantId } }))!.id;
   whId = await getDefaultWarehouse(tenantId);
-  authToken = generateAccessToken({ userId: managerUser!.id, tenantId, tenantSlug: 'test-tenant' });
-  cashierToken = generateAccessToken({ userId: cashierUser!.id, tenantId, tenantSlug: 'test-tenant' });
+  // Real sessions, not bare JWTs (same fix as test-util.ts): since Phase 1,
+  // tokens without a matching userSession row are rejected. A second login
+  // round-trip is used instead of reusing setup()'s tokens because this
+  // file owns local authToken/cashierToken bindings its api() helper
+  // closes over — rewiring to test-util's exports would be structural churn.
+  authToken = (await authService.login('manager@test.com', 'manager123', { ipAddress: '127.0.0.1', userAgent: 'test-harness' })).accessToken;
+  cashierToken = (await authService.login('cashier@test.com', 'cashier123', { ipAddress: '127.0.0.1', userAgent: 'test-harness' })).accessToken;
 }
 
 // ---- TEST GROUPS ----

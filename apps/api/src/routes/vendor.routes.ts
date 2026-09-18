@@ -4,7 +4,7 @@ import { getTenantContext } from '../lib/prisma';
 import { vendorService } from '../services/vendor.service';
 import { rbacMiddleware } from '../middleware/rbac';
 import { ACCOUNT_CODES } from '../constants/accounts';
-import { parseIdParam } from '../utils/helpers';
+import { parseIdParam, requireAuthUserId } from '../utils/helpers';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -105,14 +105,14 @@ router.post('/:id/payments', rbacMiddleware('vendors.payments'), async (req: Req
 
     const result = await prisma.$transaction(async (tx: any) => {
       const payment = await tx.vendorPayment.create({
-        data: { tenantId: ctx.tenantId, vendorId, paymentDate: paymentDate ? new Date(paymentDate) : new Date(), amount, paymentMethod: paymentMethod || 'CASH', referenceNumber: referenceNumber || null, notes: notes || null, createdBy: req.user ? BigInt(req.user.userId) : 1 },
+        data: { tenantId: ctx.tenantId, vendorId, paymentDate: paymentDate ? new Date(paymentDate) : new Date(), amount, paymentMethod: paymentMethod || 'CASH', referenceNumber: referenceNumber || null, notes: notes || null, createdBy: requireAuthUserId(req) },
       });
 
       const before = Number(vendor.currentBalance);
       const balanceAfter = before - amount;
       await tx.vendor.update({ where: { id: vendorId }, data: { currentBalance: { decrement: amount } } });
       await tx.vendorLedger.create({
-        data: { tenantId: ctx.tenantId, vendorId, type: 'PAYMENT', amount, balanceBefore: before, balanceAfter, referenceId: payment.id, referenceType: 'vendor_payment', notes: notes || null, createdBy: req.user ? BigInt(req.user.userId) : 1 },
+        data: { tenantId: ctx.tenantId, vendorId, type: 'PAYMENT', amount, balanceBefore: before, balanceAfter, referenceId: payment.id, referenceType: 'vendor_payment', notes: notes || null, createdBy: requireAuthUserId(req) },
       });
 
       // Journal entry: Dr AP, Cr Cash
@@ -130,7 +130,7 @@ router.post('/:id/payments', rbacMiddleware('vendors.payments'), async (req: Req
               tenantId: ctx.tenantId, entryNumber: `PAY-${Date.now()}`, entryDate: new Date(),
               description: `Payment to ${vendor.companyName}`,
               totalDebit: amount, totalCredit: amount,
-              createdBy: req.user ? BigInt(req.user.userId) : 1,
+              createdBy: requireAuthUserId(req),
               lines: { create: [{ tenantId: ctx.tenantId, accountId: apAcct.id, debitAmount: amount, creditAmount: 0, description: 'Vendor payment' }, { tenantId: ctx.tenantId, accountId: assetAcct.id, debitAmount: 0, creditAmount: amount, description: paymentMethod || 'CASH' }] },
             },
           });
@@ -142,7 +142,7 @@ router.post('/:id/payments', rbacMiddleware('vendors.payments'), async (req: Req
 
     logger.info('Vendor payment recorded', { vendorId: vendorId.toString(), amount, tenantId: ctx.tenantId.toString() });
     res.status(201).json({ data: { message: 'Payment recorded', ...result } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Vendor payment failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 // ---- Vendor Ledger ----

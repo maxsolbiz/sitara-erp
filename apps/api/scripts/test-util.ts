@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import express from 'express';
 import http from 'http';
 import { registerRoutes } from '../src/routes';
-import { generateAccessToken, hashPassword } from '../src/utils/helpers';
+import { authService } from '../src/services/auth.service';
 import { setTenantContext } from '../src/lib/prisma';
 
 let _server: http.Server | null = null;
@@ -37,8 +37,14 @@ export async function setup() {
   const wh = await prisma.warehouse.findFirst({ where: { tenantId, isDefault: true } })
     || await prisma.warehouse.findFirst({ where: { tenantId }, orderBy: { id: 'asc' } });
   whId = wh!.id;
-  authToken = generateAccessToken({ userId: managerUser!.id, tenantId, tenantSlug: 'test-tenant' });
-  cashierToken = generateAccessToken({ userId: cashierUser!.id, tenantId, tenantSlug: 'test-tenant' });
+  // Real sessions, not bare JWTs: since Phase 1, access tokens without a
+  // matching userSession row are rejected. Logging in through AuthService
+  // exercises the production path (password verify, Redis slot, session
+  // row) and yields tokens the middleware accepts.
+  const mgrLogin = await authService.login('manager@test.com', 'manager123', { ipAddress: '127.0.0.1', userAgent: 'test-harness' });
+  authToken = mgrLogin.accessToken;
+  const cashLogin = await authService.login('cashier@test.com', 'cashier123', { ipAddress: '127.0.0.1', userAgent: 'test-harness' });
+  cashierToken = cashLogin.accessToken;
 
   // Vendors
   let v = await prisma.vendor.findFirst({ where: { tenantId, code: 'VEN-A' } });

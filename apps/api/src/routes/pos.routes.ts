@@ -4,7 +4,7 @@ import prisma from '../lib/prisma';
 import { getTenantContext } from '../lib/prisma';
 import { rbacMiddleware } from '../middleware/rbac';
 import { validateMiddleware } from '../middleware/validate';
-import { generateSaleNumber, formatPkr, verifyPassword, parseIdParam } from '../utils/helpers';
+import { generateSaleNumber, formatPkr, verifyPassword, parseIdParam, requireAuthUserId } from '../utils/helpers';
 import { getDefaultWarehouse } from '../utils/warehouse';
 import { printerService } from '../services/printer.service';
 import { ACCOUNT_CODES } from '../constants/accounts';
@@ -178,12 +178,12 @@ router.post('/hold', rbacMiddleware('pos.sales.hold'), async (req: Request, res:
     const sale = await prisma.sale.create({
       data: {
         tenantId: ctx.tenantId, saleNumber, saleDate: new Date(), subtotal: total, totalAmount: total,
-        status: 'HELD', heldBy: req.user ? BigInt(req.user.userId) : 1, heldAt: new Date(), customerId: customerId || null, createdBy: req.user ? BigInt(req.user.userId) : 1,
+        status: 'HELD', heldBy: requireAuthUserId(req), heldAt: new Date(), customerId: customerId || null, createdBy: requireAuthUserId(req),
         items: { create: items.map((i: any) => ({ tenantId: ctx.tenantId, productId: BigInt(i.productId), quantity: i.quantity, unitPrice: i.unitPrice, unitCost: i.unitPrice || 0, lineTotal: i.lineTotal || (i.unitPrice * i.quantity), cogsAmount: 0, profitAmount: 0 })) },
       },
     });
     res.status(201).json({ data: { id: sale.id.toString(), saleNumber: sale.saleNumber } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('POS hold failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.post('/resume/:id', rbacMiddleware('pos.sales.hold'), async (req: Request, res: Response) => {
@@ -318,7 +318,7 @@ router.post('/process-return', rbacMiddleware('pos.returns.process'), async (req
 
     const result = await prisma.$transaction(async (tx: any) => {
       const ret = await tx.salesReturn.create({
-        data: { tenantId, saleId: saleIdBigInt, customerId: BigInt(customerId), returnNumber, returnDate: new Date(), totalAmount, reason: reason || 'Other', status: 'APPROVED', createdBy: req.user ? BigInt(req.user.userId) : 1 },
+        data: { tenantId, saleId: saleIdBigInt, customerId: BigInt(customerId), returnNumber, returnDate: new Date(), totalAmount, reason: reason || 'Other', status: 'APPROVED', createdBy: requireAuthUserId(req) },
       });
 
       for (const item of items) {
@@ -332,13 +332,13 @@ router.post('/process-return', rbacMiddleware('pos.returns.process'), async (req
         const restoreCost = batch ? Number(batch.unitCost) : (item.unitPrice || 0);
         if (batch) await tx.stockBatch.update({ where: { id: batch.id }, data: { quantityRemaining: { increment: qty } } });
         else await tx.stockBatch.create({ data: { tenantId, warehouseId, productId: BigInt(item.productId || 0), batchNumber: `RET-${Date.now()}`, quantityReceived: qty, quantityRemaining: qty, unitCost: restoreCost, receivedAt: new Date() } });
-        await tx.stockMovement.create({ data: { tenantId, warehouseId, productId: BigInt(item.productId || 0), movementType: 'SALE_RETURN', quantity: qty, unitCost: restoreCost, referenceType: 'sales_return', referenceId: ret.id, createdBy: req.user ? BigInt(req.user.userId) : 1 } });
+        await tx.stockMovement.create({ data: { tenantId, warehouseId, productId: BigInt(item.productId || 0), movementType: 'SALE_RETURN', quantity: qty, unitCost: restoreCost, referenceType: 'sales_return', referenceId: ret.id, createdBy: requireAuthUserId(req) } });
       }
 
       if (method === 'credit' && cust) {
         const before = Number(cust.currentBalance);
         await tx.customer.update({ where: { id: customerId }, data: { currentBalance: { increment: totalAmount } } });
-        await tx.customerLedger.create({ data: { tenantId, customerId, type: 'REFUND', amount: totalAmount, balanceBefore: before, balanceAfter: before + totalAmount, referenceId: ret.id, referenceType: 'sales_return', notes: `Refund from return ${returnNumber}`, createdBy: req.user ? BigInt(req.user.userId) : 1 } });
+        await tx.customerLedger.create({ data: { tenantId, customerId, type: 'REFUND', amount: totalAmount, balanceBefore: before, balanceAfter: before + totalAmount, referenceId: ret.id, referenceType: 'sales_return', notes: `Refund from return ${returnNumber}`, createdBy: requireAuthUserId(req) } });
       }
 
       const [returnsAcct, cashAcct, arAcct] = await Promise.all([
@@ -353,7 +353,7 @@ router.post('/process-return', rbacMiddleware('pos.returns.process'), async (req
         const td = lines.reduce((s: number, l: any) => s + Number(l.debitAmount), 0);
         const tc = lines.reduce((s: number, l: any) => s + Number(l.creditAmount), 0);
         if (Math.abs(td - tc) > 0.01) throw new Error(`Journal not balanced: Dr ${td} != Cr ${tc}`);
-        await tx.journalEntry.create({ data: { tenantId, entryNumber: `RET-${returnNumber.replace('RET-', '')}`, entryDate: new Date(), description: `Return ${returnNumber}`, totalDebit: td, totalCredit: tc, createdBy: req.user ? BigInt(req.user.userId) : 1, lines: { create: lines } } });
+        await tx.journalEntry.create({ data: { tenantId, entryNumber: `RET-${returnNumber.replace('RET-', '')}`, entryDate: new Date(), description: `Return ${returnNumber}`, totalDebit: td, totalCredit: tc, createdBy: requireAuthUserId(req), lines: { create: lines } } });
       }
       return ret;
     });
@@ -557,7 +557,7 @@ router.post('/checkout', rbacMiddleware('pos.sales.create'), validateMiddleware(
           subtotal: saleSubtotal, discountAmount: discount || 0, totalAmount: finalTotal,
           paidAmount, changeAmount: Math.max(0, paidAmount - finalTotal),
           status: 'COMPLETED', paymentStatus,
-          customerId: customerId || null, notes: notes || null, createdBy: req.user ? BigInt(req.user.userId) : 1,
+          customerId: customerId || null, notes: notes || null, createdBy: requireAuthUserId(req),
           ...(pricingTier ? { tierId: pricingTier.id, tierName: pricingTier.name, tierDiscount: Number(pricingTier.discountPercent) } : {}),
           ...(offlineId ? { offlineId } : {}),
           createdAt: new Date(),
@@ -580,7 +580,7 @@ router.post('/checkout', rbacMiddleware('pos.sales.create'), validateMiddleware(
           payments: {
             create: payments.map((p: any) => ({
               tenantId, paymentMethod: p.method, amount: p.amount,
-              referenceNumber: p.referenceNumber || null, createdBy: req.user ? BigInt(req.user.userId) : 1,
+              referenceNumber: p.referenceNumber || null, createdBy: requireAuthUserId(req),
             })),
           },
         },
@@ -612,7 +612,7 @@ router.post('/checkout', rbacMiddleware('pos.sales.create'), validateMiddleware(
           }
           const fc = fifoCosts[item.productId];
           await tx.stockMovement.create({
-            data: { tenantId, warehouseId, productId: item.productId, movementType: 'SALE_OUT', quantity: -item.quantity, unitCost: fc ? fc.unitCost : item.unitPrice, referenceType: 'sale', referenceId: sale.id, createdBy: req.user ? BigInt(req.user.userId) : 1 },
+            data: { tenantId, warehouseId, productId: item.productId, movementType: 'SALE_OUT', quantity: -item.quantity, unitCost: fc ? fc.unitCost : item.unitPrice, referenceType: 'sale', referenceId: sale.id, createdBy: requireAuthUserId(req) },
           });
         } else if (item.quantity < 0) {
           // Return item — restore stock at FIFO batch cost (unchanged)
@@ -638,7 +638,7 @@ router.post('/checkout', rbacMiddleware('pos.sales.create'), validateMiddleware(
             });
           }
           await tx.stockMovement.create({
-            data: { tenantId, warehouseId, productId: item.productId, movementType: 'SALE_RETURN', quantity: qty, unitCost: restoreCost, referenceType: 'sale', referenceId: sale.id, createdBy: req.user ? BigInt(req.user.userId) : 1 },
+            data: { tenantId, warehouseId, productId: item.productId, movementType: 'SALE_RETURN', quantity: qty, unitCost: restoreCost, referenceType: 'sale', referenceId: sale.id, createdBy: requireAuthUserId(req) },
           });
         }
       }
@@ -669,7 +669,7 @@ router.post('/checkout', rbacMiddleware('pos.sales.create'), validateMiddleware(
               balanceBefore: before, balanceAfter,
               referenceId: sale.id, referenceType: 'sale',
               notes: descParts.join(', '),
-              createdBy: req.user ? BigInt(req.user.userId) : 1,
+              createdBy: requireAuthUserId(req),
             },
           });
         }
@@ -749,7 +749,7 @@ router.post('/checkout', rbacMiddleware('pos.sales.create'), validateMiddleware(
             tenantId, entryNumber: `JE-${saleNumber.replace('SAL-', '')}`, entryDate: new Date(),
             description: returnItems.length > 0 ? `Sale+Return ${saleNumber}` : `Sale ${saleNumber}`,
             totalDebit, totalCredit,
-            createdBy: req.user ? BigInt(req.user.userId) : 1,
+            createdBy: requireAuthUserId(req),
             lines: { create: lines },
           },
         });
@@ -768,7 +768,7 @@ router.post('/checkout', rbacMiddleware('pos.sales.create'), validateMiddleware(
               tenantId, entryNumber: `COGS-${saleNumber.replace('SAL-', '')}`, entryDate: new Date(),
               description: `COGS ${saleNumber}`,
               totalDebit: totalCogs, totalCredit: totalCogs,
-              createdBy: req.user ? BigInt(req.user.userId) : 1,
+              createdBy: requireAuthUserId(req),
               lines: {
                 create: [
                   { tenantId, accountId: cogsAcct.id, debitAmount: totalCogs, creditAmount: 0, description: 'Cost of goods sold' },

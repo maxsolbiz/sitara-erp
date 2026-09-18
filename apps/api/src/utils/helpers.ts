@@ -67,6 +67,18 @@ export function formatPkr(amount: number | string): string {
 }
 
 /**
+ * Authenticated-user id for audit columns (createdBy/approvedBy/...).
+ * Fail-closed: every route using this sits behind authMiddleware, so a
+ * missing req.user means the middleware chain is miswired — a server bug,
+ * never a client error. Callers must let this throw (route catch → 500),
+ * never fall back to a hardcoded id (old `: 1` pattern forged user 1).
+ */
+export function requireAuthUserId(req: { user?: { userId: string } | null }): bigint {
+  if (!req.user) throw new Error('Missing authenticated user');
+  return BigInt(req.user.userId);
+}
+
+/**
  * Parse a route :id param into a bigint.
  * Returns null for empty, non-numeric, or non-positive values instead of
  * throwing (BigInt('abc')) or silently coercing (BigInt('') === 0n).

@@ -5,7 +5,7 @@ import { purchaseService } from '../services/purchase.service';
 import { rbacMiddleware } from '../middleware/rbac';
 import { getDefaultWarehouse } from '../utils/warehouse';
 import { ACCOUNT_CODES } from '../constants/accounts';
-import { parseIdParam } from '../utils/helpers';
+import { parseIdParam, requireAuthUserId } from '../utils/helpers';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -138,7 +138,7 @@ router.post('/receipts', rbacMiddleware('purchases.receive'), async (req: Reques
         data: {
           tenantId, receiptNumber, purchaseOrderId: BigInt(purchaseOrderId),
           warehouseId: BigInt(items[0].warehouseId || 0), receiptDate: receivedDate ? new Date(receivedDate) : new Date(),
-          totalItems: items.length, notes: notes || null, receivedBy: req.user ? BigInt(req.user.userId) : 1,
+          totalItems: items.length, notes: notes || null, receivedBy: requireAuthUserId(req),
         },
       });
 
@@ -180,7 +180,7 @@ router.post('/receipts', rbacMiddleware('purchases.receive'), async (req: Reques
 
         // Stock movement
         await tx.stockMovement.create({
-          data: { tenantId, warehouseId: whId, productId: BigInt(item.productId), movementType: 'PURCHASE_IN', quantity: qty, unitCost, referenceType: 'purchase_receipt', referenceId: receipt.id, createdBy: req.user ? BigInt(req.user.userId) : 1 },
+          data: { tenantId, warehouseId: whId, productId: BigInt(item.productId), movementType: 'PURCHASE_IN', quantity: qty, unitCost, referenceType: 'purchase_receipt', referenceId: receipt.id, createdBy: requireAuthUserId(req) },
         });
       }
 
@@ -206,7 +206,7 @@ router.post('/receipts', rbacMiddleware('purchases.receive'), async (req: Reques
               tenantId, entryNumber: `GRN-${receiptNumber.replace('GRN-', '')}`, entryDate: new Date(),
               description: `GRN ${receiptNumber} for PO ${po.orderNumber}`,
               totalDebit: totalValue, totalCredit: totalValue,
-              createdBy: req.user ? BigInt(req.user.userId) : 1,
+              createdBy: requireAuthUserId(req),
               lines: { create: [{ tenantId, accountId: invAcct.id, debitAmount: totalValue, creditAmount: 0, description: 'Inventory received' }, { tenantId, accountId: apAcct.id, debitAmount: 0, creditAmount: totalValue, description: `PO ${po.orderNumber}` }] },
             },
           });
@@ -217,7 +217,7 @@ router.post('/receipts', rbacMiddleware('purchases.receive'), async (req: Reques
       const vendorBefore = Number(po.vendor.currentBalance);
       await tx.vendor.update({ where: { id: po.vendorId }, data: { currentBalance: { increment: totalValue } } });
       await tx.vendorLedger.create({
-        data: { tenantId, vendorId: po.vendorId, type: 'PURCHASE', amount: totalValue, balanceBefore: vendorBefore, balanceAfter: vendorBefore + totalValue, referenceId: receipt.id, referenceType: 'purchase_receipt', notes: `GRN ${receiptNumber}`, createdBy: req.user ? BigInt(req.user.userId) : 1 },
+        data: { tenantId, vendorId: po.vendorId, type: 'PURCHASE', amount: totalValue, balanceBefore: vendorBefore, balanceAfter: vendorBefore + totalValue, referenceId: receipt.id, referenceType: 'purchase_receipt', notes: `GRN ${receiptNumber}`, createdBy: requireAuthUserId(req) },
       });
 
       return { id: receipt.id.toString(), receiptNumber };
@@ -288,7 +288,7 @@ router.post('/returns', rbacMiddleware('purchases.returns'), async (req: Request
         data: {
           tenantId, returnNumber, purchaseOrderId: purchaseOrderId ? BigInt(purchaseOrderId) : null,
           vendorId: BigInt(vendorId), returnDate: returnDate ? new Date(returnDate) : new Date(),
-          totalAmount, reason: reason || 'Other', status: 'APPROVED', createdBy: req.user ? BigInt(req.user.userId) : 1,
+          totalAmount, reason: reason || 'Other', status: 'APPROVED', createdBy: requireAuthUserId(req),
         },
       });
 
@@ -319,7 +319,7 @@ router.post('/returns', rbacMiddleware('purchases.returns'), async (req: Request
         }
 
         await tx.stockMovement.create({
-          data: { tenantId, warehouseId: whId, productId: BigInt(item.productId), movementType: 'PURCHASE_RETURN', quantity: -qty, unitCost, referenceType: 'purchase_return', referenceId: ret.id, createdBy: req.user ? BigInt(req.user.userId) : 1 },
+          data: { tenantId, warehouseId: whId, productId: BigInt(item.productId), movementType: 'PURCHASE_RETURN', quantity: -qty, unitCost, referenceType: 'purchase_return', referenceId: ret.id, createdBy: requireAuthUserId(req) },
         });
       }
 
@@ -335,7 +335,7 @@ router.post('/returns', rbacMiddleware('purchases.returns'), async (req: Request
               tenantId, entryNumber: `PRET-${returnNumber.replace('PRET-', '')}`, entryDate: new Date(),
               description: `Purchase return ${returnNumber}`,
               totalDebit: totalAmount, totalCredit: totalAmount,
-              createdBy: req.user ? BigInt(req.user.userId) : 1,
+              createdBy: requireAuthUserId(req),
               lines: { create: [{ tenantId, accountId: apAcct.id, debitAmount: totalAmount, creditAmount: 0, description: 'Return to vendor' }, { tenantId, accountId: invAcct.id, debitAmount: 0, creditAmount: totalAmount, description: 'Inventory returned' }] },
             },
           });
@@ -346,7 +346,7 @@ router.post('/returns', rbacMiddleware('purchases.returns'), async (req: Request
       const vendorBefore = Number(vendor.currentBalance);
       await tx.vendor.update({ where: { id: vendor.id }, data: { currentBalance: { decrement: totalAmount } } });
       await tx.vendorLedger.create({
-        data: { tenantId, vendorId: vendor.id, type: 'RETURN', amount: totalAmount, balanceBefore: vendorBefore, balanceAfter: vendorBefore - totalAmount, referenceId: ret.id, referenceType: 'purchase_return', notes: `Return ${returnNumber}`, createdBy: req.user ? BigInt(req.user.userId) : 1 },
+        data: { tenantId, vendorId: vendor.id, type: 'RETURN', amount: totalAmount, balanceBefore: vendorBefore, balanceAfter: vendorBefore - totalAmount, referenceId: ret.id, referenceType: 'purchase_return', notes: `Return ${returnNumber}`, createdBy: requireAuthUserId(req) },
       });
 
       return { id: ret.id.toString(), returnNumber };
@@ -354,7 +354,7 @@ router.post('/returns', rbacMiddleware('purchases.returns'), async (req: Request
 
     logger.info('Purchase return created', { returnNumber: result.returnNumber, tenantId: tenantId.toString() });
     res.status(201).json({ data: result });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Purchase return failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.patch('/returns/:id/approve', rbacMiddleware('purchases.returns'), async (req: Request, res: Response) => {
@@ -362,10 +362,10 @@ router.patch('/returns/:id/approve', rbacMiddleware('purchases.returns'), async 
     const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
     await prisma.purchaseReturn.updateMany({
       where: { id: BigInt(req.params.id), tenantId: ctx.tenantId },
-      data: { status: 'APPROVED', approvedBy: req.user ? BigInt(req.user.userId) : 1, approvedAt: new Date() },
+      data: { status: 'APPROVED', approvedBy: requireAuthUserId(req), approvedAt: new Date() },
     });
     res.json({ data: { message: 'Return approved' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Purchase return approve failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 export default router;

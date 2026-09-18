@@ -11,7 +11,7 @@ import { settingService } from '../services/setting.service';
 import logger from '../utils/logger';
 import { getDefaultWarehouse } from '../utils/warehouse';
 import { ACCOUNT_CODES } from '../constants/accounts';
-import { parseIdParam } from '../utils/helpers';
+import { parseIdParam, requireAuthUserId } from '../utils/helpers';
 import { logActivity } from '../utils/activity';
 
 const router = Router();
@@ -121,7 +121,7 @@ router.patch('/:id/void', rbacMiddleware('sales.void'), async (req: Request, res
             update: { quantity: { increment: item.quantity } },
           });
           await tx.stockMovement.create({
-            data: { tenantId: ctx.tenantId, warehouseId, productId: item.productId, movementType: 'SALE_VOID', quantity: item.quantity, unitCost: Number(item.unitCost), referenceType: 'sale', referenceId: sale.id, createdBy: req.user ? BigInt(req.user.userId) : 1 },
+            data: { tenantId: ctx.tenantId, warehouseId, productId: item.productId, movementType: 'SALE_VOID', quantity: item.quantity, unitCost: Number(item.unitCost), referenceType: 'sale', referenceId: sale.id, createdBy: requireAuthUserId(req) },
           });
         } else if (item.quantity < 0) {
           const qty = Math.abs(item.quantity);
@@ -135,7 +135,7 @@ router.patch('/:id/void', rbacMiddleware('sales.void'), async (req: Request, res
             });
           }
           await tx.stockMovement.create({
-            data: { tenantId: ctx.tenantId, warehouseId, productId: item.productId, movementType: 'SALE_VOID', quantity: -qty, unitCost: Number(item.unitCost), referenceType: 'sale', referenceId: sale.id, createdBy: req.user ? BigInt(req.user.userId) : 1 },
+            data: { tenantId: ctx.tenantId, warehouseId, productId: item.productId, movementType: 'SALE_VOID', quantity: -qty, unitCost: Number(item.unitCost), referenceType: 'sale', referenceId: sale.id, createdBy: requireAuthUserId(req) },
           });
         }
       }
@@ -155,7 +155,7 @@ router.patch('/:id/void', rbacMiddleware('sales.void'), async (req: Request, res
             balanceBefore: before, balanceAfter: before - creditPortion,
             referenceId: sale.id, referenceType: 'sale',
             notes: `Void credit portion ${sale.saleNumber}`,
-            createdBy: req.user ? BigInt(req.user.userId) : 1,
+            createdBy: requireAuthUserId(req),
           },
         });
       }
@@ -177,7 +177,7 @@ router.patch('/:id/void', rbacMiddleware('sales.void'), async (req: Request, res
               balanceBefore: before, balanceAfter: before - returnExcess,
               referenceId: sale.id, referenceType: 'sale',
               notes: `Void return credit ${sale.saleNumber}`,
-              createdBy: req.user ? BigInt(req.user.userId) : 1,
+              createdBy: requireAuthUserId(req),
             },
           });
         }
@@ -234,7 +234,7 @@ router.patch('/:id/void', rbacMiddleware('sales.void'), async (req: Request, res
             tenantId: ctx.tenantId, entryNumber: voidRef, entryDate: new Date(),
             description: `Void sale ${sale.saleNumber}`,
             totalDebit, totalCredit,
-            createdBy: req.user ? BigInt(req.user.userId) : 1,
+            createdBy: requireAuthUserId(req),
             lines: { create: lines },
           },
         });
@@ -248,7 +248,7 @@ router.patch('/:id/void', rbacMiddleware('sales.void'), async (req: Request, res
             tenantId: ctx.tenantId, entryNumber: `VOID-COGS-${sale.saleNumber}`, entryDate: new Date(),
             description: `Reverse COGS ${sale.saleNumber}`,
             totalDebit: totalCogs, totalCredit: totalCogs,
-            createdBy: req.user ? BigInt(req.user.userId) : 1,
+            createdBy: requireAuthUserId(req),
             lines: {
               create: [
                 { tenantId: ctx.tenantId, accountId: cogsAcct.id, debitAmount: 0, creditAmount: totalCogs, description: 'Reverse COGS' },

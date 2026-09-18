@@ -3,7 +3,7 @@ import prisma from '../lib/prisma';
 import { getTenantContext } from '../lib/prisma';
 import { accountingService } from '../services/accounting.service';
 import { rbacMiddleware } from '../middleware/rbac';
-import { parseIdParam } from '../utils/helpers';
+import { parseIdParam, requireAuthUserId } from '../utils/helpers';
 import { logActivity } from '../utils/activity';
 import logger from '../utils/logger';
 
@@ -142,11 +142,11 @@ router.post('/journal-entries/:id/reverse', rbacMiddleware('accounting.journals.
           description: `Reversal of: ${entry.description} — Reason: ${reason}`,
           totalDebit: entry.totalDebit, totalCredit: entry.totalCredit,
           referenceType: 'REVERSAL', referenceId: entry.id,
-          createdBy: req.user ? BigInt(req.user.userId) : 1,
+          createdBy: requireAuthUserId(req),
           lines: { create: entry.lines.map((l) => ({ tenantId: ctx.tenantId, accountId: l.accountId, debitAmount: Number(l.creditAmount), creditAmount: Number(l.debitAmount), description: `Reversal: ${l.description || entry.description}` })) },
         },
       });
-      await tx.journalEntry.update({ where: { id: entry.id }, data: { isReversed: true, reversedEntryId: rev.id, reversedBy: req.user ? BigInt(req.user.userId) : 1, reversedAt: new Date() } });
+      await tx.journalEntry.update({ where: { id: entry.id }, data: { isReversed: true, reversedEntryId: rev.id, reversedBy: requireAuthUserId(req), reversedAt: new Date() } });
       return { id: rev.id.toString(), entryNumber: rev.entryNumber };
     });
 
@@ -160,7 +160,7 @@ router.post('/journal-entries/:id/reverse', rbacMiddleware('accounting.journals.
       ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
     });
     res.status(201).json({ data: result });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Journal reverse failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 export default router;

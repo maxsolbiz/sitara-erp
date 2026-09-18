@@ -33,13 +33,18 @@ export class AccountingService {
 
   async createJournalEntry(data: any, meta?: { userId?: bigint; ipAddress?: string; userAgent?: string }) {
     const ctx = getTenantContext(); if (!ctx) throw new Error('No tenant');
+    // Fail-closed (was createdBy: tenantId — a tenant id is not a user):
+    // the caller always passes the authenticated user id; refuse rather
+    // than forge attribution.
+    const createdBy = meta?.userId;
+    if (!createdBy) throw new Error('Missing authenticated user for journal entry');
     const entryNumber = `JE-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${String(Math.floor(Math.random() * 9999)).padStart(4, '0')}`;
     const totalDebit = data.lines.reduce((s: number, l: any) => s + (l.debitAmount || 0), 0);
     const totalCredit = data.lines.reduce((s: number, l: any) => s + (l.creditAmount || 0), 0);
     const result = await prisma.$transaction(async (tx) => {
       if (Math.abs(totalDebit - totalCredit) > 0.01) throw new Error('Debits must equal credits');
       const entry = await tx.journalEntry.create({
-        data: { tenantId: ctx.tenantId, entryNumber, entryDate: new Date(data.entryDate), description: data.description, totalDebit, totalCredit, createdBy: BigInt(ctx.tenantId), lines: { create: data.lines.map((l: any) => ({ tenantId: ctx.tenantId, accountId: BigInt(l.accountId), debitAmount: l.debitAmount || 0, creditAmount: l.creditAmount || 0, description: l.description || null })) } },
+        data: { tenantId: ctx.tenantId, entryNumber, entryDate: new Date(data.entryDate), description: data.description, totalDebit, totalCredit, createdBy, lines: { create: data.lines.map((l: any) => ({ tenantId: ctx.tenantId, accountId: BigInt(l.accountId), debitAmount: l.debitAmount || 0, creditAmount: l.creditAmount || 0, description: l.description || null })) } },
       });
       return { id: entry.id.toString(), entryNumber: entry.entryNumber };
     });

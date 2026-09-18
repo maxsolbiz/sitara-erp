@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { getTenantContext } from '../lib/prisma';
 import { rbacMiddleware } from '../middleware/rbac';
-import { parseIdParam } from '../utils/helpers';
+import { parseIdParam, requireAuthUserId } from '../utils/helpers';
 import { logActivity } from '../utils/activity';
 import logger from '../utils/logger';
 
@@ -200,7 +200,7 @@ router.post('/:id/close', rbacMiddleware('accounting.accounts.manage'), async (r
         const tc = closingLines.reduce((s: number, l: any) => s + Number(l.creditAmount), 0);
         if (Math.abs(td - tc) > 0.01) throw new Error(`Closing entry not balanced: Dr ${td} != Cr ${tc}`);
         await tx.journalEntry.create({
-          data: { tenantId, entryNumber: `CLOSE-${fy.name.replace(/\s+/g, '')}`, entryDate: new Date(), description: `Year-end closing: ${fy.name}`, totalDebit: td, totalCredit: tc, createdBy: req.user ? BigInt(req.user.userId) : 1, financialYearId: fy.id, lines: { create: closingLines } },
+          data: { tenantId, entryNumber: `CLOSE-${fy.name.replace(/\s+/g, '')}`, entryDate: new Date(), description: `Year-end closing: ${fy.name}`, totalDebit: td, totalCredit: tc, createdBy: requireAuthUserId(req), financialYearId: fy.id, lines: { create: closingLines } },
         });
       }
 
@@ -217,7 +217,7 @@ router.post('/:id/close', rbacMiddleware('accounting.accounts.manage'), async (r
       ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
     });
     res.json({ data: { message: `Financial year ${fy.name} closed successfully` } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Financial year close failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 export default router;

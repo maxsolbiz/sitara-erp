@@ -3,7 +3,7 @@ import prisma from '../lib/prisma';
 import { getTenantContext } from '../lib/prisma';
 import { rbacMiddleware } from '../middleware/rbac';
 import { ACCOUNT_CODES } from '../constants/accounts';
-import { parseIdParam } from '../utils/helpers';
+import { parseIdParam, requireAuthUserId } from '../utils/helpers';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -96,14 +96,14 @@ router.post('/', rbacMiddleware('loans.manage'), async (req: Request, res: Respo
       const amt = Number(principalAmount);
       if (cashAcct && loansRecAcct && type === 'GIVEN') {
         await tx.journalEntry.create({
-          data: { tenantId, entryNumber: 'LN-' + loanNumber.replace('LN-', ''), entryDate: new Date(), description: 'Loan given ' + loanNumber, totalDebit: amt, totalCredit: amt, createdBy: req.user ? BigInt(req.user.userId) : 1,
+          data: { tenantId, entryNumber: 'LN-' + loanNumber.replace('LN-', ''), entryDate: new Date(), description: 'Loan given ' + loanNumber, totalDebit: amt, totalCredit: amt, createdBy: requireAuthUserId(req),
             lines: { create: [{ tenantId, accountId: loansRecAcct.id, debitAmount: amt, creditAmount: 0, description: 'Loan given' }, { tenantId, accountId: cashAcct.id, debitAmount: 0, creditAmount: amt, description: 'Cash disbursement' }] },
           },
         });
       }
       if (cashAcct && loansPayAcct && type === 'TAKEN') {
         await tx.journalEntry.create({
-          data: { tenantId, entryNumber: 'LN-' + loanNumber.replace('LN-', ''), entryDate: new Date(), description: 'Loan taken ' + loanNumber, totalDebit: amt, totalCredit: amt, createdBy: req.user ? BigInt(req.user.userId) : 1,
+          data: { tenantId, entryNumber: 'LN-' + loanNumber.replace('LN-', ''), entryDate: new Date(), description: 'Loan taken ' + loanNumber, totalDebit: amt, totalCredit: amt, createdBy: requireAuthUserId(req),
             lines: { create: [{ tenantId, accountId: cashAcct.id, debitAmount: amt, creditAmount: 0, description: 'Loan received' }, { tenantId, accountId: loansPayAcct.id, debitAmount: 0, creditAmount: amt, description: 'Loan payable' }] },
           },
         });
@@ -111,7 +111,7 @@ router.post('/', rbacMiddleware('loans.manage'), async (req: Request, res: Respo
       return loan;
     });
     res.status(201).json({ data: { id: result.id.toString(), loanNumber } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Loan create failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.put('/:id', rbacMiddleware('loans.manage'), async (req: Request, res: Response) => {
@@ -148,21 +148,21 @@ router.post('/:id/payments', rbacMiddleware('loans.manage'), async (req: Request
       ]);
       if (loan.type === 'GIVEN' && cashAcct && loansRecAcct) {
         await tx.journalEntry.create({
-          data: { tenantId, entryNumber: 'LNP-' + String(Date.now()), entryDate: new Date(), description: 'Loan payment received ' + loan.loanNumber, totalDebit: payAmount, totalCredit: payAmount, createdBy: req.user ? BigInt(req.user.userId) : 1,
+          data: { tenantId, entryNumber: 'LNP-' + String(Date.now()), entryDate: new Date(), description: 'Loan payment received ' + loan.loanNumber, totalDebit: payAmount, totalCredit: payAmount, createdBy: requireAuthUserId(req),
             lines: { create: [{ tenantId, accountId: cashAcct.id, debitAmount: payAmount, creditAmount: 0, description: 'Payment received' }, { tenantId, accountId: loansRecAcct.id, debitAmount: 0, creditAmount: payAmount, description: 'Loan receivable reduction' }] },
           },
         });
       }
       if (loan.type === 'TAKEN' && cashAcct && loansPayAcct) {
         await tx.journalEntry.create({
-          data: { tenantId, entryNumber: 'LNP-' + String(Date.now()), entryDate: new Date(), description: 'Loan payment made ' + loan.loanNumber, totalDebit: payAmount, totalCredit: payAmount, createdBy: req.user ? BigInt(req.user.userId) : 1,
+          data: { tenantId, entryNumber: 'LNP-' + String(Date.now()), entryDate: new Date(), description: 'Loan payment made ' + loan.loanNumber, totalDebit: payAmount, totalCredit: payAmount, createdBy: requireAuthUserId(req),
             lines: { create: [{ tenantId, accountId: loansPayAcct.id, debitAmount: payAmount, creditAmount: 0, description: 'Loan payable reduction' }, { tenantId, accountId: cashAcct.id, debitAmount: 0, creditAmount: payAmount, description: 'Payment made' }] },
           },
         });
       }
     });
     res.status(201).json({ data: { message: 'Payment recorded' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Loan payment failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 export default router;

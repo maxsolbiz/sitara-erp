@@ -4,7 +4,7 @@ import { getTenantContext } from '../lib/prisma';
 import { rbacMiddleware } from '../middleware/rbac';
 import { getUserScope } from '../utils/scope';
 import { getDefaultWarehouse } from '../utils/warehouse';
-import { parseIdParam } from '../utils/helpers';
+import { parseIdParam, requireAuthUserId } from '../utils/helpers';
 import { ACCOUNT_CODES } from '../constants/accounts';
 import { createNotification } from './notification.routes';
 import logger from '../utils/logger';
@@ -102,7 +102,7 @@ router.patch('/:id/approve', rbacMiddleware('sales.returns.approve'), async (req
         });
         if (batch) await tx.stockBatch.update({ where: { id: batch.id }, data: { quantityRemaining: { increment: qty } } });
         await tx.stockMovement.create({
-          data: { tenantId, warehouseId, productId: item.productId, movementType: 'SALE_RETURN', quantity: qty, unitCost: Number(item.unitPrice), referenceType: 'sales_return', referenceId: ret.id, createdBy: req.user ? BigInt(req.user.userId) : 1 },
+          data: { tenantId, warehouseId, productId: item.productId, movementType: 'SALE_RETURN', quantity: qty, unitCost: Number(item.unitPrice), referenceType: 'sales_return', referenceId: ret.id, createdBy: requireAuthUserId(req) },
         });
       }
 
@@ -110,7 +110,7 @@ router.patch('/:id/approve', rbacMiddleware('sales.returns.approve'), async (req
       if (refundMethod === 'credit' && ret.customerId) {
         const before = Number(ret.customer?.currentBalance || 0);
         await tx.customer.update({ where: { id: ret.customerId }, data: { currentBalance: { increment: totalAmount } } });
-        await tx.customerLedger.create({ data: { tenantId, customerId: ret.customerId, type: 'REFUND', amount: totalAmount, balanceBefore: before, balanceAfter: before + totalAmount, referenceId: ret.id, referenceType: 'sales_return', notes: `Return ${ret.returnNumber}`, createdBy: req.user ? BigInt(req.user.userId) : 1 } });
+        await tx.customerLedger.create({ data: { tenantId, customerId: ret.customerId, type: 'REFUND', amount: totalAmount, balanceBefore: before, balanceAfter: before + totalAmount, referenceId: ret.id, referenceType: 'sales_return', notes: `Return ${ret.returnNumber}`, createdBy: requireAuthUserId(req) } });
       }
 
       // Journal entry
@@ -126,15 +126,15 @@ router.patch('/:id/approve', rbacMiddleware('sales.returns.approve'), async (req
         const td = lines.reduce((s: number, l: any) => s + Number(l.debitAmount), 0);
         const tc = lines.reduce((s: number, l: any) => s + Number(l.creditAmount), 0);
         if (Math.abs(td - tc) > 0.01) throw new Error(`Journal not balanced: Dr ${td} != Cr ${tc}`);
-        await tx.journalEntry.create({ data: { tenantId, entryNumber: `RET-${ret.returnNumber.replace('RET-', '')}`, entryDate: new Date(), description: `Return ${ret.returnNumber}`, totalDebit: td, totalCredit: tc, createdBy: req.user ? BigInt(req.user.userId) : 1, lines: { create: lines } } });
+        await tx.journalEntry.create({ data: { tenantId, entryNumber: `RET-${ret.returnNumber.replace('RET-', '')}`, entryDate: new Date(), description: `Return ${ret.returnNumber}`, totalDebit: td, totalCredit: tc, createdBy: requireAuthUserId(req), lines: { create: lines } } });
       }
 
-      await tx.salesReturn.update({ where: { id: ret.id }, data: { status: 'APPROVED', approvedBy: req.user ? BigInt(req.user.userId) : 1, approvedAt: new Date() } });
+      await tx.salesReturn.update({ where: { id: ret.id }, data: { status: 'APPROVED', approvedBy: requireAuthUserId(req), approvedAt: new Date() } });
     });
 
     logger.info('Return approved', { returnNumber: ret.returnNumber, tenantId: tenantId.toString() });
     res.json({ data: { message: 'Return approved' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Return approve failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.patch('/:id/reject', rbacMiddleware('sales.returns.approve'), async (req: Request, res: Response) => {
@@ -144,9 +144,9 @@ router.patch('/:id/reject', rbacMiddleware('sales.returns.approve'), async (req:
     if (!ret) { res.status(404).json({ status: 404, detail: 'Return not found' }); return; }
     if (ret.status !== 'PENDING') { res.status(400).json({ status: 400, detail: `Return is already ${ret.status}` }); return; }
     const { reason } = req.body;
-    await prisma.salesReturn.update({ where: { id: ret.id }, data: { status: 'REJECTED', rejectedBy: req.user ? BigInt(req.user.userId) : 1, rejectedAt: new Date(), rejectionReason: reason || null } });
+    await prisma.salesReturn.update({ where: { id: ret.id }, data: { status: 'REJECTED', rejectedBy: requireAuthUserId(req), rejectedAt: new Date(), rejectionReason: reason || null } });
     res.json({ data: { message: 'Return rejected' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Return reject failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.post('/', rbacMiddleware('sales.returns.create'), async (req: Request, res: Response) => {
@@ -176,7 +176,7 @@ router.post('/', rbacMiddleware('sales.returns.create'), async (req: Request, re
     const result = await prisma.salesReturn.create({
       data: {
         tenantId: ctx.tenantId, returnNumber, saleId: BigInt(saleId), customerId: sale.customerId, returnDate: new Date(),
-        totalAmount, reason: reason || 'Other', status: 'PENDING', createdBy: req.user ? BigInt(req.user.userId) : 1,
+        totalAmount, reason: reason || 'Other', status: 'PENDING', createdBy: requireAuthUserId(req),
         items: { create: items.map((i: any) => {
           const si = saleItemMap.get(String(i.saleItemId));
           return { tenantId: ctx.tenantId, saleItemId: BigInt(i.saleItemId), productId: si ? si.productId : BigInt(i.productId || 0), quantityReturned: i.quantity, unitPrice: i.unitPrice || 0, lineTotal: (i.unitPrice || 0) * (i.quantity || 0), warehouseId: BigInt(i.warehouseId || 0) };
@@ -191,7 +191,7 @@ router.post('/', rbacMiddleware('sales.returns.create'), async (req: Request, re
 
     logger.info('Return created', { returnNumber, saleId, tenantId: ctx.tenantId.toString() });
     res.status(201).json({ data: { id: result.id.toString(), returnNumber, status: 'PENDING' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Return create failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 export default router;
