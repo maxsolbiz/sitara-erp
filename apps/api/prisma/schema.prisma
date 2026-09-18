@@ -285,7 +285,7 @@ model Product {
   id               BigInt   @id @default(autoincrement())
   tenantId         BigInt   @map("tenant_id")
   sku              String   @db.VarChar(50)
-  barcode          String?  @unique @db.VarChar(50)
+  barcode          String?  @db.VarChar(50)
   name             String   @db.VarChar(200)
   description      String?  @db.Text
   categoryId       BigInt?  @map("category_id")
@@ -323,6 +323,7 @@ model Product {
   transferItems     StockTransferItem[]
 
   @@unique([tenantId, sku])
+  @@unique([tenantId, barcode])
   @@index([tenantId])
   @@index([barcode])
   @@index([categoryId])
@@ -562,7 +563,7 @@ model Barcode {
   id          BigInt   @id @default(autoincrement())
   tenantId     BigInt   @map("tenant_id")
   productId    BigInt?  @map("product_id")
-  barcode      String   @unique @db.VarChar(50)
+  barcode      String   @db.VarChar(50)
   barcodeType  String   @default("C128") @map("barcode_type") @db.VarChar(20)
   generatedAt  DateTime @default(now()) @map("generated_at")
   generatedBy  BigInt?  @map("generated_by")
@@ -570,6 +571,7 @@ model Barcode {
   tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
 
+  @@unique([tenantId, barcode])
   @@index([tenantId])
   @@index([productId])
   @@map("barcodes")
@@ -596,8 +598,8 @@ model Customer {
   salespersonId  BigInt?  @map("salesperson_id")
   notes          String?  @db.Text
   pricingTierId  BigInt?      @map("pricing_tier_id")
-  isActive       Boolean  @default(true) @map("is_active")
-  barcode        String?  @unique @db.VarChar(50)
+  isActive        Boolean  @default(true) @map("is_active")
+  barcode        String?  @db.VarChar(50)
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
   createdBy      BigInt?  @map("created_by")
@@ -613,6 +615,7 @@ model Customer {
   salesperson   User?      @relation("CustomerSalesperson", fields: [salespersonId], references: [id], onDelete: SetNull)
 
   @@unique([tenantId, customerCode])
+  @@unique([tenantId, barcode])
   @@index([tenantId])
   @@index([barcode])
   @@index([pricingTierId])
