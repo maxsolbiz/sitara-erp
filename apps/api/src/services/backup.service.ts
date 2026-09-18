@@ -45,13 +45,41 @@ function stripUserCredentials<T>(row: T): T {
   return copy as T;
 }
 
-async function exportFullData(): Promise<{ data: Record<string, any[]>; counts: Record<string, number> }> {
+/**
+ * Explicit per-model tenant scope for backup export (C-A2a). The Prisma
+ * tenant extension cannot be relied on here: it never scopes findUnique,
+ * skips RoleUser/RolePermission entirely, and is bypassed whenever the
+ * ambient ALS context is absent (worker/script/test callers). Every
+ * export query below goes through this helper — no bare findMany().
+ * Junction models without their own tenantId resolve via their parent
+ * (verified against schema.prisma relation field names).
+ */
+function resolveTenantScope(model: string, tenantId: bigint): Record<string, unknown> {
+  switch (model) {
+    case 'rolePermission':
+      return { role: { tenantId } };
+    case 'roleUser':
+      // Pure junction table with no tenantId of its own (verified against
+      // schema: only userId + roleId) — scope via the user side. Without
+      // this case the default { tenantId } would throw and the catch-skip
+      // would silently drop roleUser rows from every backup.
+      return { user: { tenantId } };
+    case 'productBundleItem':
+      return { bundle: { tenantId } };
+    case 'stockTransferItem':
+      return { transfer: { tenantId } };
+    default:
+      return { tenantId };
+  }
+}
+
+async function exportFullData(tenantId: bigint): Promise<{ data: Record<string, any[]>; counts: Record<string, number> }> {
   const data: Record<string, any[]> = {};
   const counts: Record<string, number> = {};
-  const modelNames = ['user', 'customer', 'customerLedger', 'customerPayment', 'customerActivityLog', 'vendor', 'vendorLedger', 'vendorPayment', 'vendorActivityLog', 'product', 'productVariant', 'productImage', 'productCategory', 'warehouse', 'warehouseStock', 'stockMovement', 'stockBatch', 'stockAdjustment', 'barcode', 'productBundle', 'productAttribute', 'pricingTier', 'purchaseOrder', 'purchaseOrderItem', 'purchaseReceipt', 'purchaseReceiptItem', 'purchaseReturn', 'purchaseReturnItem', 'sale', 'saleItem', 'salePayment', 'salesReturn', 'salesReturnItem', 'returnProcessingLog', 'expenseCategory', 'expense', 'chartOfAccount', 'journalEntry', 'journalEntryLine', 'financialYear', 'loanParty', 'loan', 'loanPayment', 'setting', 'notification', 'importHistory', 'role', 'rolePermission', 'permission'];
+  const modelNames = ['user', 'customer', 'customerLedger', 'customerPayment', 'customerActivityLog', 'vendor', 'vendorLedger', 'vendorPayment', 'vendorActivityLog', 'product', 'productVariant', 'productImage', 'productCategory', 'warehouse', 'warehouseStock', 'stockMovement', 'stockBatch', 'stockAdjustment', 'barcode', 'productBundle', 'productBundleItem', 'productAttribute', 'pricingTier', 'purchaseOrder', 'purchaseOrderItem', 'purchaseReceipt', 'purchaseReceiptItem', 'purchaseReturn', 'purchaseReturnItem', 'sale', 'saleItem', 'salePayment', 'salesReturn', 'salesReturnItem', 'returnProcessingLog', 'expenseCategory', 'expense', 'chartOfAccount', 'journalEntry', 'journalEntryLine', 'financialYear', 'loanParty', 'loan', 'loanPayment', 'setting', 'notification', 'importHistory', 'role', 'roleUser', 'rolePermission', 'permission', 'stockTransferItem'];
   for (const model of modelNames) {
     try {
-      const records = await (prisma as any)[model].findMany();
+      const records = await (prisma as any)[model].findMany({ where: resolveTenantScope(model, tenantId) });
       data[model] = model === 'user' ? records.map(stripUserCredentials) : records;
       counts[model] = records.length;
     } catch { /* skip */ }
@@ -59,16 +87,19 @@ async function exportFullData(): Promise<{ data: Record<string, any[]>; counts: 
   return { data, counts };
 }
 
-async function exportPartialData(backupType: string): Promise<{ data: Record<string, any[]>; counts: Record<string, number> }> {
+async function exportPartialData(tenantId: bigint, backupType: string): Promise<{ data: Record<string, any[]>; counts: Record<string, number> }> {
   const data: Record<string, any[]> = {};
   const counts: Record<string, number> = {};
   let models: string[] = [];
-  if (backupType === 'config') models = ['setting', 'role', 'rolePermission', 'permission', 'pricingTier', 'financialYear'];
+  // NOTE: roleUser rides with the access-control group (config); bundle /
+  // transfer line items export with full backups only — the partial lists
+  // are entity-scoped snapshots, and their parents aren't in them either.
+  if (backupType === 'config') models = ['setting', 'role', 'roleUser', 'rolePermission', 'permission', 'pricingTier', 'financialYear'];
   else if (backupType === 'master_data') models = ['customer', 'vendor', 'product', 'productVariant', 'productImage', 'productCategory', 'warehouse', 'pricingTier'];
   else if (backupType === 'transactions') models = ['sale', 'saleItem', 'salePayment', 'salesReturn', 'salesReturnItem', 'purchaseOrder', 'purchaseOrderItem', 'purchaseReceipt', 'purchaseReceiptItem', 'purchaseReturn', 'purchaseReturnItem', 'customerLedger', 'customerPayment', 'vendorLedger', 'vendorPayment', 'expense', 'journalEntry', 'journalEntryLine'];
   for (const model of models) {
     try {
-      const records = await (prisma as any)[model].findMany();
+      const records = await (prisma as any)[model].findMany({ where: resolveTenantScope(model, tenantId) });
       data[model] = model === 'user' ? records.map(stripUserCredentials) : records;
       counts[model] = records.length;
     } catch { /* skip */ }
@@ -83,8 +114,10 @@ export async function createBackup(options: { tenantId: bigint; backupType?: str
     data: { tenantId, filename: 'pending', storagePath: 'pending', backupType, status: 'in_progress', appVersion: getAppVersion(), schemaVersion: getSchemaVersion(), notes, createdBy, startedAt }
   });
   try {
-    const { data, counts } = backupType === 'full' ? await exportFullData() : await exportPartialData(backupType);
-    const payload = { meta: { backupId: Number(record.id), backupType, appVersion: getAppVersion(), schemaVersion: getSchemaVersion(), createdAt: startedAt.toISOString(), format: 'sitara-erp-backup-v1' }, counts, data };
+    const { data, counts } = backupType === 'full' ? await exportFullData(tenantId) : await exportPartialData(tenantId, backupType);
+    // tenantId stamp: C-A2b's restore gate refuses payloads whose tenant
+    // does not match the restoring tenant. Recorded here, at export time.
+    const payload = { meta: { backupId: Number(record.id), tenantId: tenantId.toString(), backupType, appVersion: getAppVersion(), schemaVersion: getSchemaVersion(), createdAt: startedAt.toISOString(), format: 'sitara-erp-backup-v1' }, counts, data };
     const json = JSON.stringify(payload, (_, v) => typeof v === 'bigint' ? v.toString() : v);
     const jsonBuffer = Buffer.from(json, 'utf8');
     const compressed = await gzip(jsonBuffer);
