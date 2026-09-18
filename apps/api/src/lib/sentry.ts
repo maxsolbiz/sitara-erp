@@ -87,7 +87,12 @@ export function initSentry(): void {
   Sentry.init({
     dsn: config.sentry.dsn,
     environment: config.nodeEnv,
-    tracesSampleRate: 0,
+    // NOTE: tracesSampleRate is deliberately OMITTED, not set to 0.
+    // The SDK's hasTracingEnabled() treats a present key (even 0) as
+    // "tracing enabled", which fires a bogus "express is not
+    // instrumented" boot warning. Omitting the key disables tracing
+    // for real — same effective behavior (error-only, no per-request
+    // overhead), no warning.
     // Never collect PII/IPs by default, and scrub anything credential-
     // shaped before upload (verified against the installed SDK source:
     // request headers/cookies/body/query are otherwise sent verbatim).
