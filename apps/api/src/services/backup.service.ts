@@ -26,12 +26,35 @@ function getSchemaVersion(): string {
   try { const migrationsDir = path.join(process.cwd(), 'prisma', 'migrations'); const dirs = fs.readdirSync(migrationsDir).filter(d => d.match(/^\d{14}_/)).sort(); return dirs[dirs.length - 1] || 'unknown'; } catch { return 'unknown'; }
 }
 
+/**
+ * Credential hygiene (urgent micro-fix, independent of tenant scoping):
+ * backup files must never store authenticatable secrets. User rows are
+ * exported WITHOUT passwordHash/resetToken — a backup on disk or in a
+ * download must not be a credential dump. Restored users therefore get
+ * an unusable password hash + mustChangePassword (see executeRestore),
+ * forcing a password reset instead of silently restoring access.
+ * Old backups that still contain hashes restore unchanged (their
+ * validation is C-A2b's job, not this function's).
+ */
+const USER_CREDENTIAL_FIELDS = ['passwordHash', 'resetToken'] as const;
+
+function stripUserCredentials<T>(row: T): T {
+  if (!row || typeof row !== 'object') return row;
+  const copy: Record<string, unknown> = { ...(row as Record<string, unknown>) };
+  for (const f of USER_CREDENTIAL_FIELDS) delete copy[f];
+  return copy as T;
+}
+
 async function exportFullData(): Promise<{ data: Record<string, any[]>; counts: Record<string, number> }> {
   const data: Record<string, any[]> = {};
   const counts: Record<string, number> = {};
   const modelNames = ['user', 'customer', 'customerLedger', 'customerPayment', 'customerActivityLog', 'vendor', 'vendorLedger', 'vendorPayment', 'vendorActivityLog', 'product', 'productVariant', 'productImage', 'productCategory', 'warehouse', 'warehouseStock', 'stockMovement', 'stockBatch', 'stockAdjustment', 'barcode', 'productBundle', 'productAttribute', 'pricingTier', 'purchaseOrder', 'purchaseOrderItem', 'purchaseReceipt', 'purchaseReceiptItem', 'purchaseReturn', 'purchaseReturnItem', 'sale', 'saleItem', 'salePayment', 'salesReturn', 'salesReturnItem', 'returnProcessingLog', 'expenseCategory', 'expense', 'chartOfAccount', 'journalEntry', 'journalEntryLine', 'financialYear', 'loanParty', 'loan', 'loanPayment', 'setting', 'notification', 'importHistory', 'role', 'rolePermission', 'permission'];
   for (const model of modelNames) {
-    try { const records = await (prisma as any)[model].findMany(); data[model] = records; counts[model] = records.length; } catch { /* skip */ }
+    try {
+      const records = await (prisma as any)[model].findMany();
+      data[model] = model === 'user' ? records.map(stripUserCredentials) : records;
+      counts[model] = records.length;
+    } catch { /* skip */ }
   }
   return { data, counts };
 }
@@ -44,7 +67,11 @@ async function exportPartialData(backupType: string): Promise<{ data: Record<str
   else if (backupType === 'master_data') models = ['customer', 'vendor', 'product', 'productVariant', 'productImage', 'productCategory', 'warehouse', 'pricingTier'];
   else if (backupType === 'transactions') models = ['sale', 'saleItem', 'salePayment', 'salesReturn', 'salesReturnItem', 'purchaseOrder', 'purchaseOrderItem', 'purchaseReceipt', 'purchaseReceiptItem', 'purchaseReturn', 'purchaseReturnItem', 'customerLedger', 'customerPayment', 'vendorLedger', 'vendorPayment', 'expense', 'journalEntry', 'journalEntryLine'];
   for (const model of models) {
-    try { const records = await (prisma as any)[model].findMany(); data[model] = records; counts[model] = records.length; } catch { /* skip */ }
+    try {
+      const records = await (prisma as any)[model].findMany();
+      data[model] = model === 'user' ? records.map(stripUserCredentials) : records;
+      counts[model] = records.length;
+    } catch { /* skip */ }
   }
   return { data, counts };
 }
@@ -132,8 +159,17 @@ export async function executeRestore(options: { backupId: number; confirmToken: 
     try { await (prisma as any)[model].deleteMany({}); } catch {}
   }
   for (const model of insertOrder) {
-    const records = payload.data?.[model];
+    let records = payload.data?.[model];
     if (!Array.isArray(records) || records.length === 0) continue;
+    // Companion to the export-side strip above: new backups carry no
+    // passwordHash, and the column is NOT NULL — fill an unusable random
+    // value and force a password reset instead of restoring access.
+    // (Rows from old backups that still contain a hash restore unchanged.)
+    if (model === 'user') {
+      records = records.map((r: any) => (r && !r.passwordHash
+        ? { ...r, passwordHash: crypto.randomBytes(32).toString('hex'), mustChangePassword: true }
+        : r));
+    }
     try {
       for (let i = 0; i < records.length; i += 100) {
         const chunk = records.slice(i, i + 100);

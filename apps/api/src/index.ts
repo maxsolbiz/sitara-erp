@@ -1,3 +1,4 @@
+import './instrument';
 import { Request, Response, NextFunction } from 'express';
 import express from 'express';
 import cors from 'cors';
@@ -19,7 +20,6 @@ declare global {
 import { config } from './config';
 import logger from './utils/logger';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
-import { initSentry } from './lib/sentry';
 import * as Sentry from '@sentry/node';
 import { rateLimitMiddleware } from './middleware/rateLimit';
 import { authMiddleware } from './middleware/auth';
@@ -31,9 +31,8 @@ import { startCurrencySync } from './services/currency.service';
 
 const app = express();
 
-// Error tracking (dormant unless SENTRY_DSN is set). Initialized before
-// any request handling so the winston bridge and route coverage are live.
-initSentry();
+// Error tracking is initialized in ./instrument (first import above),
+// dormant unless SENTRY_DSN is set.
 
 // Trust ONLY the loopback reverse proxy (Apache on this box) so req.ip
 // reflects the X-Forwarded-For client instead of 127.0.0.1. Without this,
