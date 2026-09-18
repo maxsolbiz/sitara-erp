@@ -7,6 +7,7 @@ import { authMiddleware } from '../middleware/auth';
 import { validateMiddleware } from '../middleware/validate';
 import { authRateLimitMiddleware } from '../middleware/rateLimit';
 import { hashPassword, verifyPassword, parseIdParam } from '../utils/helpers';
+import { TENANT_SLUG_PATTERN, isReservedTenantSlug } from '../constants/tenant';
 import { getRedis } from '../lib/redis';
 import logger from '../utils/logger';
 
@@ -24,7 +25,11 @@ router.param('id', (req, res, next, val) => {
 
 const registerSchema = z.object({
   tenantName: z.string().min(2).max(200),
-  slug: z.string().min(3).max(50).regex(/^[a-z0-9-]+$/, 'Slug must be lowercase alphanumeric with hyphens'),
+  // DNS-label-safe (see constants/tenant.ts) + reserved-subdomain block.
+  // The service layer re-checks both (scripts/tests can call it directly).
+  slug: z.string().min(3).max(50)
+    .regex(TENANT_SLUG_PATTERN, 'Slug must start and end with a letter or digit, with only lowercase letters, digits, or interior hyphens')
+    .refine((s) => !isReservedTenantSlug(s), 'This subdomain is reserved — please choose another'),
   email: z.string().email(),
   password: z.string().min(8).max(100),
   fullName: z.string().min(2).max(100),
@@ -66,6 +71,10 @@ router.post('/register', authRateLimitMiddleware(), validateMiddleware(registerS
       },
     });
   } catch (error: any) {
+    if (error.message === 'RESERVED_SLUG') {
+      res.status(400).json({ status: 400, title: 'Bad Request', detail: 'This subdomain is reserved or invalid — please choose another' });
+      return;
+    }
     if (error.message === 'TENANT_EXISTS') {
       res.status(409).json({ status: 409, title: 'Conflict', detail: 'This business name is already registered' });
       return;

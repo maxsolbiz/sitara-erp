@@ -1,6 +1,7 @@
 import prisma from '../lib/prisma';
 import crypto from 'crypto';
 import { hashPassword, verifyPassword, generateAccessToken, generateRefreshToken, verifyRefreshToken, verifyAccessToken } from '../utils/helpers';
+import { isValidTenantSlug } from '../constants/tenant';
 import { logActivity } from '../utils/activity';
 import { sendPasswordResetEmail } from './email.service';
 import { getRedis } from '../lib/redis';
@@ -8,6 +9,12 @@ import logger from '../utils/logger';
 
 export class AuthService {
   async registerTenant(tenantName: string, slug: string, email: string, password: string, fullName: string) {
+    // Defense-in-depth: the route validates via zod, but direct service
+    // callers (scripts, tests) bypass it. Reject DNS-unsafe or reserved
+    // slugs here too — slugs back future <slug>.sitarapurse.com subdomains.
+    if (!isValidTenantSlug(slug)) {
+      throw new Error('RESERVED_SLUG');
+    }
     const existingTenant = await prisma.tenant.findUnique({ where: { slug } });
     if (existingTenant) {
       throw new Error('TENANT_EXISTS');
