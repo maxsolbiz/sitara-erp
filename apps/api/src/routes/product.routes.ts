@@ -199,7 +199,7 @@ router.get('/export', rbacMiddleware('products.export'), async (_req: Request, r
     for (const p of products) rows.push([p.sku, `"${p.name}"`, p.category?.name || '', p.unitOfMeasure, Number(p.costPrice), Number(p.sellingPrice), p.reorderLevel, p.reorderQuantity, p.isActive ? 'true' : 'false', p.barcode || '', `"${(p.description || '').replace(/"/g, '""')}"`].join(','));
     res.setHeader('Content-Type', 'text/csv'); res.setHeader('Content-Disposition', `attachment; filename="products-export-${new Date().toISOString().slice(0,10)}.csv"`);
     res.send(rows.join('\n'));
-  } catch { res.status(500).json({ status: 500, detail: 'Export failed' }); }
+  } catch { logger.error('Product export failed'); res.status(500).json({ status: 500, detail: 'Export failed' }); }
 });
 
 router.get('/import/template', rbacMiddleware('products.view'), async (_req: Request, res: Response) => {
@@ -250,7 +250,7 @@ router.post('/import', rbacMiddleware('products.import'), captureTenant, upload.
       data: { tenantId: ctx.tenantId, entityType: 'products', filename, totalRows: results.total, imported: results.imported, skipped: results.skipped, errors: results.errors.length, createdBy: req.user ? BigInt(req.user.userId) : null },
     }).catch(() => {}); // non-blocking
     res.json({ data: results });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Product import failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.get('/import/history', rbacMiddleware('products.import'), async (req: Request, res: Response) => {
@@ -290,7 +290,7 @@ router.post('/bundles', rbacMiddleware('products.create'), async (req: Request, 
       data: { tenantId: ctx.tenantId, name, sku, sellingPrice: sellingPrice || 0, description: description || null, items: { create: items.map((i: any) => ({ productId: BigInt(i.productId), quantity: i.quantity || 1 })) } },
     });
     res.status(201).json({ data: { id: bundle.id.toString(), name: bundle.name, sku: bundle.sku } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Bundle create failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.put('/bundles/:id', rbacMiddleware('products.update'), async (req: Request, res: Response) => {
@@ -314,7 +314,7 @@ router.put('/bundles/:id', rbacMiddleware('products.update'), async (req: Reques
       if (items) for (const i of items) await tx.productBundleItem.create({ data: { bundleId: BigInt(req.params.id), productId: BigInt(i.productId), quantity: i.quantity || 1 } });
     });
     res.json({ data: { message: 'Bundle updated' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Bundle update failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.delete('/bundles/:id', rbacMiddleware('products.delete'), async (req: Request, res: Response) => {
@@ -322,7 +322,7 @@ router.delete('/bundles/:id', rbacMiddleware('products.delete'), async (req: Req
     const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
     await prisma.productBundle.updateMany({ where: { id: BigInt(req.params.id), tenantId: ctx.tenantId }, data: { deletedAt: new Date() } });
     res.json({ data: { message: 'Bundle deleted' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Bundle delete failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.patch('/bundles/:id/toggle', rbacMiddleware('products.update'), async (req: Request, res: Response) => {
@@ -332,7 +332,7 @@ router.patch('/bundles/:id/toggle', rbacMiddleware('products.update'), async (re
     if (!bundle) { res.status(404).json({ status: 404 }); return; }
     await prisma.productBundle.update({ where: { id: bundle.id }, data: { isActive: !bundle.isActive } });
     res.json({ data: { message: bundle.isActive ? 'Deactivated' : 'Activated' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Bundle toggle failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 // ---- Product Attributes ----
@@ -353,7 +353,7 @@ router.post('/attributes', rbacMiddleware('products.create'), async (req: Reques
     if (existing) { res.status(409).json({ status: 409, detail: 'Attribute already exists' }); return; }
     const attr = await prisma.productAttribute.create({ data: { tenantId: ctx.tenantId, name, values: values || [] } });
     res.status(201).json({ data: { id: attr.id.toString(), name: attr.name } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Attribute create failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.put('/attributes/:id', rbacMiddleware('products.update'), async (req: Request, res: Response) => {
@@ -365,7 +365,7 @@ router.put('/attributes/:id', rbacMiddleware('products.update'), async (req: Req
     if (values !== undefined) data.values = values;
     await prisma.productAttribute.updateMany({ where: { id: BigInt(req.params.id), tenantId: ctx.tenantId }, data });
     res.json({ data: { message: 'Attribute updated' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Attribute update failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.delete('/attributes/:id', rbacMiddleware('products.delete'), async (req: Request, res: Response) => {
@@ -373,7 +373,7 @@ router.delete('/attributes/:id', rbacMiddleware('products.delete'), async (req: 
     const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
     await prisma.productAttribute.deleteMany({ where: { id: BigInt(req.params.id), tenantId: ctx.tenantId } });
     res.json({ data: { message: 'Attribute deleted' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Attribute delete failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 // ---- Product Variants ----
@@ -404,7 +404,7 @@ router.post('/:id/variants', rbacMiddleware('products.create'), async (req: Requ
       data: { tenantId: ctx.tenantId, productId, sku, name, barcode: barcode || null, costPrice: costPrice || 0, sellingPrice: sellingPrice || 0 },
     });
     res.status(201).json({ data: { id: variant.id.toString(), sku: variant.sku, name: variant.name } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Variant create failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.put('/:id/variants/:variantId', rbacMiddleware('products.update'), async (req: Request, res: Response) => {
@@ -419,7 +419,7 @@ router.put('/:id/variants/:variantId', rbacMiddleware('products.update'), async 
     if (sellingPrice !== undefined) data.sellingPrice = sellingPrice;
     await prisma.productVariant.updateMany({ where: { id: BigInt(req.params.variantId), tenantId: ctx.tenantId }, data });
     res.json({ data: { message: 'Variant updated' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Variant update failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.delete('/:id/variants/:variantId', rbacMiddleware('products.delete'), async (req: Request, res: Response) => {
@@ -427,7 +427,7 @@ router.delete('/:id/variants/:variantId', rbacMiddleware('products.delete'), asy
     const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
     await prisma.productVariant.deleteMany({ where: { id: BigInt(req.params.variantId), tenantId: ctx.tenantId } });
     res.json({ data: { message: 'Variant deleted' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Variant delete failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 // ---- Product Images ----
@@ -466,7 +466,7 @@ router.post('/:id/images', rbacMiddleware('products.update'), captureTenant, upl
       data: { tenantId: ctx.tenantId, productId, imagePath: relativePath, isPrimary: count === 0, sortOrder: count },
     });
     res.status(201).json({ data: { id: img.id.toString(), imagePath: img.imagePath, isPrimary: img.isPrimary } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Image upload failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.delete('/:id/images/:imageId', rbacMiddleware('products.update'), async (req: Request, res: Response) => {
@@ -481,7 +481,7 @@ router.delete('/:id/images/:imageId', rbacMiddleware('products.update'), async (
     if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
     await prisma.productImage.delete({ where: { id: img.id } });
     res.json({ data: { message: 'Image deleted' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Image delete failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.patch('/:id/images/:imageId/primary', rbacMiddleware('products.update'), async (req: Request, res: Response) => {
@@ -493,7 +493,7 @@ router.patch('/:id/images/:imageId/primary', rbacMiddleware('products.update'), 
     // Set new primary
     await prisma.productImage.updateMany({ where: { id: BigInt(req.params.imageId), productId, tenantId: ctx.tenantId }, data: { isPrimary: true } });
     res.json({ data: { message: 'Primary image updated' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Image primary failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.get('/:id', rbacMiddleware('products.view'), async (req: Request, res: Response) => {
@@ -507,7 +507,7 @@ router.get('/:id', rbacMiddleware('products.view'), async (req: Request, res: Re
       for (const v of ((product as any).variants || []) as any[]) delete v.costPrice;
     }
     res.json({ data: product });
-  } catch { res.status(500).json({ status: 500 }); }
+  } catch { logger.error('Product detail failed'); res.status(500).json({ status: 500 }); }
 });
 
 router.post('/', rbacMiddleware('products.create'), validateMiddleware(productSchema), async (req: Request, res: Response) => {
@@ -550,12 +550,12 @@ router.put('/:id', rbacMiddleware('products.update'), async (req: Request, res: 
     }
     res.json({ data: result });
   }
-  catch (e: any) { res.status(500).json({ status: 500, detail: e.message }); }
+  catch (e: any) { logger.error('Product update failed', { error: e.message }); res.status(500).json({ status: 500, detail: e.message }); }
 });
 
 router.delete('/:id', rbacMiddleware('products.delete'), async (req: Request, res: Response) => {
   try { await productService.delete(BigInt(req.params.id)); res.json({ data: { message: 'Product deleted' } }); }
-  catch (e: any) { res.status(500).json({ status: 500, detail: e.message }); }
+  catch (e: any) { logger.error('Product delete failed', { error: e.message }); res.status(500).json({ status: 500, detail: e.message }); }
 });
 
 export default router;

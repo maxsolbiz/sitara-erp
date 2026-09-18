@@ -40,7 +40,7 @@ router.get('/:id', rbacMiddleware('products.categories.manage'), async (req: Req
     const c = await prisma.productCategory.findFirst({ where: { id: BigInt(req.params.id), tenantId: ctx.tenantId }, include: { _count: { select: { products: true } }, children: true } });
     if (!c) { res.status(404).json({ status: 404 }); return; }
     res.json({ data: mapCategory(c, c._count.products) });
-  } catch { res.status(500).json({ status: 500 }); }
+  } catch { logger.error('Category detail failed'); res.status(500).json({ status: 500 }); }
 });
 
 router.post('/', rbacMiddleware('products.categories.manage'), async (req: Request, res: Response) => {
@@ -57,7 +57,7 @@ router.post('/', rbacMiddleware('products.categories.manage'), async (req: Reque
     const slug = genSlug(name);
     const c = await prisma.productCategory.create({ data: { tenantId: ctx.tenantId, name, slug, description: description || null, parentId: parentId ? BigInt(parentId) : null, sortOrder: sortOrder || 0 } });
     res.status(201).json({ data: mapCategory(c) });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Category create failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.put('/:id', rbacMiddleware('products.categories.manage'), async (req: Request, res: Response) => {
@@ -75,7 +75,7 @@ router.put('/:id', rbacMiddleware('products.categories.manage'), async (req: Req
     if (isActive !== undefined) data.isActive = isActive;
     await prisma.productCategory.updateMany({ where: { id: BigInt(req.params.id), tenantId: ctx.tenantId }, data });
     res.json({ data: { message: 'Category updated' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Category update failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.delete('/:id', rbacMiddleware('products.categories.manage'), async (req: Request, res: Response) => {
@@ -88,7 +88,7 @@ router.delete('/:id', rbacMiddleware('products.categories.manage'), async (req: 
     if (cat._count.products > 0) { res.status(409).json({ status: 409, detail: `Cannot delete category with ${cat._count.products} product(s) assigned.` }); return; }
     await prisma.productCategory.delete({ where: { id } });
     res.json({ data: { message: 'Category deleted' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Category delete failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.patch('/:id/toggle', rbacMiddleware('products.categories.manage'), async (req: Request, res: Response) => {
@@ -98,7 +98,7 @@ router.patch('/:id/toggle', rbacMiddleware('products.categories.manage'), async 
     if (!cat) { res.status(404).json({ status: 404 }); return; }
     await prisma.productCategory.updateMany({ where: { id: cat.id, tenantId: ctx.tenantId }, data: { isActive: !cat.isActive } });
     res.json({ data: { message: `Category ${cat.isActive ? 'deactivated' : 'activated'}` } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Category toggle failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 export default router;
