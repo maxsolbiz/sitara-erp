@@ -48,7 +48,7 @@ router.patch('/:id/read', rbacMiddleware('notifications.view'), async (req: Requ
     const userId = req.user ? BigInt(req.user.userId) : BigInt(0);
     await prisma.notification.updateMany({ where: { id: BigInt(req.params.id), tenantId: ctx.tenantId, userId }, data: { isRead: true, readAt: new Date() } });
     res.json({ data: { message: 'Marked as read' } });
-  } catch { res.status(500).json({ status: 500 }); }
+  } catch { logger.error('Notification read failed'); res.status(500).json({ status: 500 }); }
 });
 
 router.patch('/read-all', rbacMiddleware('notifications.view'), async (req: Request, res: Response) => {
@@ -57,7 +57,7 @@ router.patch('/read-all', rbacMiddleware('notifications.view'), async (req: Requ
     const userId = req.user ? BigInt(req.user.userId) : BigInt(0);
     await prisma.notification.updateMany({ where: { tenantId: ctx.tenantId, userId, isRead: false }, data: { isRead: true, readAt: new Date() } });
     res.json({ data: { message: 'All marked as read' } });
-  } catch { res.status(500).json({ status: 500 }); }
+  } catch { logger.error('Notifications read-all failed'); res.status(500).json({ status: 500 }); }
 });
 
 router.delete('/:id', rbacMiddleware('notifications.view'), async (req: Request, res: Response) => {
@@ -66,7 +66,7 @@ router.delete('/:id', rbacMiddleware('notifications.view'), async (req: Request,
     const userId = req.user ? BigInt(req.user.userId) : BigInt(0);
     await prisma.notification.deleteMany({ where: { id: BigInt(req.params.id), tenantId: ctx.tenantId, userId } });
     res.json({ data: { message: 'Deleted' } });
-  } catch { res.status(500).json({ status: 500 }); }
+  } catch { logger.error('Notification delete failed'); res.status(500).json({ status: 500 }); }
 });
 
 export default router;

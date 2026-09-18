@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { getTenantContext } from '../lib/prisma';
 import { rbacMiddleware } from '../middleware/rbac';
+import logger from '../utils/logger';
 
 const router = Router();
 
@@ -46,7 +47,7 @@ router.get('/', rbacMiddleware('admin'), async (req: Request, res: Response) => 
       })),
       meta: { total, page, perPage, totalPages: Math.ceil(total / perPage) },
     });
-  } catch { res.status(500).json({ status: 500 }); }
+  } catch { logger.error('Activity list failed'); res.status(500).json({ status: 500 }); }
 });
 
 export default router;

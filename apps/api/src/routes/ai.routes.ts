@@ -5,6 +5,7 @@ import { authMiddleware } from '../middleware/auth';
 import { rbacMiddleware } from '../middleware/rbac';
 import { tenantMiddleware } from '../middleware/tenant';
 import { generateProductDescription, generateSalesSummary } from '../services/ai.service';
+import logger from '../utils/logger';
 
 const router = Router();
 
@@ -15,6 +16,7 @@ router.post('/product-description', authMiddleware, tenantMiddleware, rbacMiddle
     const description = await generateProductDescription(name, category || '', price || 0);
     res.json({ success: true, data: { description } });
   } catch (error: any) {
+    logger.error('AI description failed', { error: error.message });
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -35,6 +37,7 @@ router.get('/sales-summary', authMiddleware, tenantMiddleware, rbacMiddleware('r
     });
     res.json({ success: true, data: { summary } });
   } catch (error: any) {
+    logger.error('AI summary failed', { error: error.message });
     res.status(500).json({ success: false, error: error.message });
   }
 });

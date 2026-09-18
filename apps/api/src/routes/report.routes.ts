@@ -2,11 +2,15 @@ import { Router, Request, Response } from 'express';
 import { getTenantContext } from '../lib/prisma';
 import { reportService } from '../services/report.service';
 import { rbacMiddleware } from '../middleware/rbac';
+import logger from '../utils/logger';
 
 const router = Router();
 
 function wrap(fn: (req: Request, res: Response) => Promise<void>) {
-  return (req: Request, res: Response) => fn(req, res).catch((e) => res.status(500).json({ status: 500, detail: e.message }));
+  return (req: Request, res: Response) => fn(req, res).catch((e) => {
+    logger.error('Report failed', { error: (e as Error)?.message });
+    res.status(500).json({ status: 500, detail: (e as Error)?.message });
+  });
 }
 
 function getParams(req: Request) {
