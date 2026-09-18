@@ -5,6 +5,7 @@ import { isValidTenantSlug } from '../constants/tenant';
 import { logActivity } from '../utils/activity';
 import { sendPasswordResetEmail } from './email.service';
 import { getRedis } from '../lib/redis';
+import { reportError } from '../lib/sentry';
 import logger from '../utils/logger';
 
 export class AuthService {
@@ -358,6 +359,12 @@ export class AuthService {
       }).catch(() => {});
       await redis.del(`refresh:${user.id}`).catch(() => {});
       logger.warn('SECURITY: refresh token reuse detected — all sessions revoked', {
+        userId: user.id.toString(),
+        tenantId: user.tenantId.toString(),
+      });
+      // Paging-grade signal: warn-level logs stay local-only, so report
+      // reuse explicitly once Sentry is configured (no-op otherwise).
+      reportError(new Error('Refresh token reuse detected'), {
         userId: user.id.toString(),
         tenantId: user.tenantId.toString(),
       });

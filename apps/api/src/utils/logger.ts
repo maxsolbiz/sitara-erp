@@ -1,5 +1,28 @@
 import winston from 'winston';
+import TransportStream from 'winston-transport';
+import * as Sentry from '@sentry/node';
 import { config } from '../config';
+import { isSentryEnabled } from '../lib/sentry';
+
+/**
+ * Forwards error-level logs to Sentry when initialized. Lazy-guarded per
+ * log call (not at construction) so import order between logger and
+ * sentry init never matters. Warn and below stay local-only — high-value
+ * warn-level security events use reportError() explicitly instead.
+ */
+class SentryTransport extends TransportStream {
+  log(info: any, next: () => void): void {
+    if (info?.level === 'error' && isSentryEnabled()) {
+      try {
+        const { level, message, ...extra } = info;
+        Sentry.captureMessage(String(message), { level: 'error', extra });
+      } catch {
+        // Sentry must never break logging.
+      }
+    }
+    next();
+  }
+}
 
 const logger = winston.createLogger({
   level: config.log.level,
@@ -26,6 +49,7 @@ const logger = winston.createLogger({
       maxsize: 10 * 1024 * 1024,
       maxFiles: 5,
     }),
+    new SentryTransport(),
   ],
 });
 

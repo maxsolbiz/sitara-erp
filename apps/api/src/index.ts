@@ -19,6 +19,8 @@ declare global {
 import { config } from './config';
 import logger from './utils/logger';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
+import { initSentry } from './lib/sentry';
+import * as Sentry from '@sentry/node';
 import { rateLimitMiddleware } from './middleware/rateLimit';
 import { authMiddleware } from './middleware/auth';
 import { tenantMiddleware } from './middleware/tenant';
@@ -28,6 +30,10 @@ import { initGeoIP } from './services/geoip.service';
 import { startCurrencySync } from './services/currency.service';
 
 const app = express();
+
+// Error tracking (dormant unless SENTRY_DSN is set). Initialized before
+// any request handling so the winston bridge and route coverage are live.
+initSentry();
 
 // Trust ONLY the loopback reverse proxy (Apache on this box) so req.ip
 // reflects the X-Forwarded-For client instead of 127.0.0.1. Without this,
@@ -82,6 +88,10 @@ app.get(`/${config.apiPrefix}/health`, (_req: Request, res: Response) => {
 registerRoutes(app);
 
 app.use(notFoundHandler);
+// Sentry's Express error handler registers itself on the app (returns
+// void) — it must come after routes so uncaught route errors report with
+// request context, then flow to the app handler below.
+Sentry.setupExpressErrorHandler(app);
 app.use(errorHandler);
 
 if (process.env.NODE_ENV !== 'test') {
