@@ -90,7 +90,7 @@ router.get('/init', rbacMiddleware('pos.access'), async (_req: Request, res: Res
         hardwareSettings: hardwareSettings?.value || {},
       },
     });
-  } catch { res.status(500).json({ status: 500, detail: 'Failed to load POS data' }); }
+  } catch { logger.error('POS init failed'); res.status(500).json({ status: 500, detail: 'Failed to load POS data' }); }
 });
 
 router.get('/', rbacMiddleware('pos.access'), async (_req: Request, res: Response) => {
@@ -202,7 +202,7 @@ router.post('/resume/:id', rbacMiddleware('pos.sales.hold'), async (req: Request
     await prisma.saleItem.deleteMany({ where: { saleId: sale.id } });
     await prisma.sale.delete({ where: { id: sale.id } });
     res.json({ data: { sale: { items: sale.items.map((i) => ({ productId: Number(i.productId), productName: i.product?.name, quantity: i.quantity, unitPrice: Number(i.unitPrice), lineTotal: Number(i.lineTotal) })) } } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('POS resume failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.get('/products-by-category', rbacMiddleware('pos.access'), async (req: Request, res: Response) => {
@@ -391,7 +391,7 @@ router.post('/validate-manager', async (req: Request, res: Response) => {
       res.status(403).json({ status: 403, detail: 'User does not have manager privileges' }); return;
     }
     res.json({ data: { userId: user.id.toString(), fullName: user.fullName, verified: true } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Manager validation failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 // ---- CHECKOUT ----

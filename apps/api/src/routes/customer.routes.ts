@@ -111,6 +111,7 @@ router.get('/export/csv', rbacMiddleware('customers.view'), async (req: Request,
     res.setHeader('Content-Disposition', `attachment; filename="customers-${new Date().toISOString().slice(0,10)}.csv"`);
     return res.send(csv);
   } catch (error: any) {
+    logger.error('Customer export failed', { error: error.message });
     res.status(500).json({ status: 500, detail: 'Failed to export customers' });
   }
 });
@@ -161,6 +162,7 @@ router.get('/:id/payments/:paymentId/receipt', rbacMiddleware('customers.view'),
       settings,
     } });
   } catch (error: any) {
+    logger.error('Payment receipt failed', { error: error.message });
     res.status(500).json({ status: 500, detail: error.message });
   }
 });
@@ -212,7 +214,7 @@ router.get('/reports/aging', rbacMiddleware('reports.view'), async (req: Request
       days91plus: acc.days91plus + r.buckets.days91plus, total: acc.total + r.currentBalance,
     }), { current: 0, days1_30: 0, days31_60: 0, days61_90: 0, days91plus: 0, total: 0 });
     res.json({ data: { report, totals, generatedAt: today.toISOString() } });
-  } catch { res.status(500).json({ status: 500 }); }
+  } catch { logger.error('Aging report failed'); res.status(500).json({ status: 500 }); }
 });
 
 router.get('/:id/aging', rbacMiddleware('customers.view'), async (req: Request, res: Response) => {
@@ -245,7 +247,7 @@ router.get('/:id/aging', rbacMiddleware('customers.view'), async (req: Request, 
       else buckets.days91plus += e.amount;
     }
     res.json({ data: { customer: { id: customer.id.toString(), fullName: customer.fullName, customerCode: customer.customerCode, phone: customer.phone, currentBalance: Number(customer.currentBalance), creditLimit: customer.creditLimit ? Number(customer.creditLimit) : null, creditDays, customerGroup: customer.customerGroup }, entries, buckets, isOverLimit: customer.creditLimit ? Number(customer.currentBalance) > Number(customer.creditLimit) : false, totalOutstanding: Number(customer.currentBalance) } });
-  } catch { res.status(500).json({ status: 500 }); }
+  } catch { logger.error('Customer aging failed'); res.status(500).json({ status: 500 }); }
 });
 
 router.get('/:id', rbacMiddleware('customers.view'), async (req: Request, res: Response) => {
@@ -254,6 +256,7 @@ router.get('/:id', rbacMiddleware('customers.view'), async (req: Request, res: R
     if (!customer) { res.status(404).json({ status: 404, title: 'Not Found' }); return; }
     res.json({ data: customer });
   } catch (error: any) {
+    logger.error('Customer detail failed', { error: error.message });
     res.status(500).json({ status: 500, title: 'Error', detail: 'Failed to load customer' });
   }
 });
@@ -269,6 +272,7 @@ router.post('/', rbacMiddleware('customers.create'), validateMiddleware(createCu
     const result = await customerService.create(req.body);
     res.status(201).json({ data: result });
   } catch (error: any) {
+    logger.error('Customer create failed', { error: error.message });
     res.status(500).json({ status: 500, title: 'Error', detail: error.message });
   }
 });
@@ -278,6 +282,7 @@ router.put('/:id', rbacMiddleware('customers.update'), validateMiddleware(update
     await customerService.update(BigInt(req.params.id), req.body);
     res.json({ data: { message: 'Customer updated' } });
   } catch (error: any) {
+    logger.error('Customer update failed', { error: error.message });
     res.status(500).json({ status: 500, title: 'Error', detail: error.message });
   }
 });
@@ -287,6 +292,7 @@ router.delete('/:id', rbacMiddleware('customers.delete'), async (req: Request, r
     await customerService.delete(BigInt(req.params.id));
     res.json({ data: { message: 'Customer deleted' } });
   } catch (error: any) {
+    logger.error('Customer delete failed', { error: error.message });
     res.status(500).json({ status: 500, title: 'Error', detail: error.message });
   }
 });
@@ -296,7 +302,7 @@ router.get('/:id/stats', rbacMiddleware('customers.view'), async (req: Request, 
     const stats = await customerService.getDashboardStats(BigInt(req.params.id));
     if (!stats) { res.status(404).json({ status: 404 }); return; }
     res.json({ data: stats });
-  } catch { res.status(500).json({ status: 500 }); }
+  } catch { logger.error('Customer stats failed'); res.status(500).json({ status: 500 }); }
 });
 
 router.get('/:id/ledger', rbacMiddleware('customers.view'), async (req: Request, res: Response) => {
@@ -388,7 +394,7 @@ router.get('/:id/ledger', rbacMiddleware('customers.view'), async (req: Request,
       }),
       meta: { total, page, perPage, totalPages: Math.ceil(total / perPage) },
     });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Customer activity failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.post('/:id/payments', rbacMiddleware('customers.payments'), validateMiddleware(recordPaymentSchema), async (req: Request, res: Response) => {

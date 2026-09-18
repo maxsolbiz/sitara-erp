@@ -38,7 +38,7 @@ router.get('/chart-of-accounts', rbacMiddleware('accounting.view'), async (_req:
 
 router.post('/chart-of-accounts', rbacMiddleware('accounting.accounts.manage'), async (req: Request, res: Response) => {
   try { const r = await accountingService.createAccount(req.body); res.status(201).json({ data: r }); }
-  catch (e: any) { res.status(500).json({ status: 500, detail: e.message }); }
+  catch (e: any) { logger.error('Account create failed', { error: e.message }); res.status(500).json({ status: 500, detail: e.message }); }
 });
 
 router.get('/journal-entries', rbacMiddleware('accounting.view'), async (req: Request, res: Response) => {
@@ -67,17 +67,17 @@ router.post('/journal-entries', rbacMiddleware('accounting.journals.create'), as
 
 router.get('/trial-balance', rbacMiddleware('accounting.reports'), async (req: Request, res: Response) => {
   try { const fyId = req.query.financialYearId ? BigInt(req.query.financialYearId as string) : undefined; const r = await accountingService.getTrialBalance(fyId); res.json({ data: r }); }
-  catch (e: any) { res.status(500).json({ status: 500, detail: e.message }); }
+  catch (e: any) { logger.error('Trial balance failed', { error: e.message }); res.status(500).json({ status: 500, detail: e.message }); }
 });
 
 router.get('/profit-loss', rbacMiddleware('accounting.reports'), async (req: Request, res: Response) => {
   try { const fyId = req.query.financialYearId ? BigInt(req.query.financialYearId as string) : undefined; const r = await accountingService.getProfitLoss(fyId); res.json({ data: r }); }
-  catch (e: any) { res.status(500).json({ status: 500, detail: e.message }); }
+  catch (e: any) { logger.error('Profit-loss failed', { error: e.message }); res.status(500).json({ status: 500, detail: e.message }); }
 });
 
 router.get('/balance-sheet', rbacMiddleware('accounting.reports'), async (req: Request, res: Response) => {
   try { const fyId = req.query.financialYearId ? BigInt(req.query.financialYearId as string) : undefined; const r = await accountingService.getBalanceSheet(fyId); res.json({ data: r }); }
-  catch (e: any) { res.status(500).json({ status: 500, detail: e.message }); }
+  catch (e: any) { logger.error('Balance sheet failed', { error: e.message }); res.status(500).json({ status: 500, detail: e.message }); }
 });
 
 // ---- General Ledger ----
@@ -95,7 +95,7 @@ router.get('/general-ledger', rbacMiddleware('accounting.reports'), async (_req:
       return { accountId: a.id.toString(), accountCode: a.accountCode, accountName: a.accountName, accountType: a.accountType, openingBalance, totalDebits, totalCredits, closingBalance };
     });
     res.json({ data: { asOfDate: new Date().toISOString().slice(0, 10), accounts: result } });
-  } catch { res.status(500).json({ status: 500 }); }
+  } catch { logger.error('General ledger failed'); res.status(500).json({ status: 500 }); }
 });
 
 router.get('/general-ledger/:accountId', rbacMiddleware('accounting.reports'), async (req: Request, res: Response) => {
@@ -119,7 +119,7 @@ router.get('/general-ledger/:accountId', rbacMiddleware('accounting.reports'), a
     const totalDebits = transactions.reduce((s, t) => s + t.debit, 0);
     const totalCredits = transactions.reduce((s, t) => s + t.credit, 0);
     res.json({ data: { account: { code: account.accountCode, name: account.accountName, type: account.accountType }, openingBalance: Number(account.openingBalance), transactions, closingBalance: runningBalance, totalDebits, totalCredits } });
-  } catch { res.status(500).json({ status: 500 }); }
+  } catch { logger.error('General ledger account failed'); res.status(500).json({ status: 500 }); }
 });
 
 // ---- Journal Entry Reverse ----

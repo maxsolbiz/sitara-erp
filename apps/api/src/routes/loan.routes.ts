@@ -34,7 +34,7 @@ router.post('/parties', rbacMiddleware('loans.manage'), async (req: Request, res
     if (!name) { res.status(400).json({ status: 400, detail: 'Name required' }); return; }
     const party = await prisma.loanParty.create({ data: { tenantId: ctx.tenantId, name, phone: phone || null, email: email || null, address: address || null, type: type || 'INDIVIDUAL', cnic: cnic || null } });
     res.status(201).json({ data: { id: party.id.toString(), name: party.name } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Loan party create failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 // ---- Loans ----
@@ -69,7 +69,7 @@ router.get('/:id', rbacMiddleware('loans.view'), async (req: Request, res: Respo
     const loan = await prisma.loan.findFirst({ where: { id: BigInt(req.params.id), tenantId: ctx.tenantId }, include: { borrower: { select: { name: true, phone: true } }, lender: { select: { name: true, phone: true } }, payments: { orderBy: { paymentDate: 'desc' } } } });
     if (!loan) { res.status(404).json({ status: 404 }); return; }
     res.json({ data: { id: loan.id.toString(), loanNumber: loan.loanNumber, type: loan.type, partyName: loan.borrower?.name || loan.lender?.name || '', partyPhone: loan.borrower?.phone || loan.lender?.phone || '', principalAmount: Number(loan.principalAmount), interestRate: Number(loan.interestRate), startDate: loan.startDate, dueDate: loan.dueDate, status: loan.status, notes: loan.notes, totalPaid: Number(loan.totalPaid), remainingAmount: Number(loan.remainingAmount), payments: loan.payments.map((p) => ({ id: p.id.toString(), amount: Number(p.amount), paymentDate: p.paymentDate, paymentMethod: p.paymentMethod, notes: p.notes })) } });
-  } catch { res.status(500).json({ status: 500 }); }
+  } catch { logger.error('Loan detail failed'); res.status(500).json({ status: 500 }); }
 });
 
 router.post('/', rbacMiddleware('loans.manage'), async (req: Request, res: Response) => {
@@ -123,7 +123,7 @@ router.put('/:id', rbacMiddleware('loans.manage'), async (req: Request, res: Res
     if (status !== undefined) data.status = status;
     await prisma.loan.updateMany({ where: { id: BigInt(req.params.id), tenantId: ctx.tenantId }, data });
     res.json({ data: { message: 'Loan updated' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Loan update failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.post('/:id/payments', rbacMiddleware('loans.manage'), async (req: Request, res: Response) => {

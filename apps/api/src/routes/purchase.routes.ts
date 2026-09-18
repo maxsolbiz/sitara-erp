@@ -54,12 +54,12 @@ router.get('/orders/export/csv', rbacMiddleware('purchases.view'), async (req: R
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="purchase-orders-${new Date().toISOString().slice(0,10)}.csv"`);
     return res.send(csv);
-  } catch { res.status(500).json({ status: 500, detail: 'Failed to export purchase orders' }); }
+  } catch { logger.error('PO export failed'); res.status(500).json({ status: 500, detail: 'Failed to export purchase orders' }); }
 });
 
 router.get('/orders/:id', rbacMiddleware('purchases.view'), async (req: Request, res: Response) => {
-  try { const o = await purchaseService.getOrder(BigInt(req.params.id)); if (!o) { res.status(404).json({ status: 404 }); return; } res.json({ data: o }); }
-  catch { res.status(500).json({ status: 500 }); }
+    try { const o = await purchaseService.getOrder(BigInt(req.params.id)); if (!o) { res.status(404).json({ status: 404 }); return; } res.json({ data: o }); }
+    catch { logger.error('PO detail failed'); res.status(500).json({ status: 500 }); }
 });
 
 router.post('/orders', rbacMiddleware('purchases.create'), async (req: Request, res: Response) => {
@@ -93,7 +93,7 @@ router.get('/receipts/:id', rbacMiddleware('purchases.view'), async (req: Reques
     });
     if (!receipt) { res.status(404).json({ status: 404 }); return; }
     res.json({ data: { id: receipt.id.toString(), receiptNumber: receipt.receiptNumber, purchaseOrderId: receipt.purchaseOrderId.toString(), purchaseOrder: receipt.purchaseOrder, receiptDate: receipt.receiptDate, totalItems: receipt.totalItems, notes: receipt.notes, warehouse: receipt.warehouse, items: receipt.items.map((i: any) => ({ id: i.id.toString(), productId: i.productId.toString(), product: i.product, quantityReceived: i.quantityReceived, unitCost: Number(i.unitCost) })), totalValue: receipt.items.reduce((s: number, i: any) => s + Number(i.unitCost) * i.quantityReceived, 0) } });
-  } catch { res.status(500).json({ status: 500 }); }
+  } catch { logger.error('Receipt detail failed'); res.status(500).json({ status: 500 }); }
 });
 
 router.get('/orders/:id/receipts', rbacMiddleware('purchases.view'), async (req: Request, res: Response) => {
@@ -254,7 +254,7 @@ router.get('/returns/:id', rbacMiddleware('purchases.view'), async (req: Request
     });
     if (!ret) { res.status(404).json({ status: 404 }); return; }
     res.json({ data: { id: ret.id.toString(), returnNumber: ret.returnNumber, purchaseOrderId: ret.purchaseOrderId?.toString() || null, vendorId: ret.vendorId.toString(), vendor: ret.vendor, returnDate: ret.returnDate, totalAmount: Number(ret.totalAmount), reason: ret.reason, status: ret.status, items: ret.items.map((i: any) => ({ id: i.id.toString(), productId: i.productId.toString(), product: i.product, quantityReturned: i.quantityReturned, unitCost: Number(i.unitCost), lineTotal: Number(i.lineTotal) })), createdAt: ret.createdAt } });
-  } catch { res.status(500).json({ status: 500 }); }
+  } catch { logger.error('Purchase return detail failed'); res.status(500).json({ status: 500 }); }
 });
 
 router.post('/returns', rbacMiddleware('purchases.returns'), async (req: Request, res: Response) => {

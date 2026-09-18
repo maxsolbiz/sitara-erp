@@ -70,7 +70,7 @@ router.get('/:id', rbacMiddleware('sales.returns.view'), async (req: Request, re
     });
     if (!ret) { res.status(404).json({ status: 404 }); return; }
     res.json({ data: { id: ret.id.toString(), returnNumber: ret.returnNumber, saleNumber: ret.sale?.saleNumber, customerName: ret.customer?.fullName, customerPhone: ret.customer?.phone, returnDate: ret.returnDate, totalAmount: Number(ret.totalAmount), reason: ret.reason, status: ret.status, approvedBy: ret.approvedBy?.toString() || null, approvedAt: ret.approvedAt, rejectedBy: ret.rejectedBy?.toString() || null, rejectedAt: ret.rejectedAt, rejectionReason: ret.rejectionReason, items: ret.items.map((i) => ({ id: i.id.toString(), productId: i.productId.toString(), productName: i.product?.name, sku: i.product?.sku, quantityReturned: i.quantityReturned, unitPrice: Number(i.unitPrice), lineTotal: Number(i.lineTotal) })), createdAt: ret.createdAt } });
-  } catch { res.status(500).json({ status: 500 }); }
+  } catch { logger.error('Return detail failed'); res.status(500).json({ status: 500 }); }
 });
 
 router.patch('/:id/approve', rbacMiddleware('sales.returns.approve'), async (req: Request, res: Response) => {

@@ -31,8 +31,8 @@ router.get('/warehouses', rbacMiddleware('inventory.view'), async (_req: Request
 });
 
 router.post('/warehouses', rbacMiddleware('inventory.adjust'), async (req: Request, res: Response) => {
-  try { const r = await inventoryService.createWarehouse(req.body); res.status(201).json({ data: r }); }
-  catch (e: any) { res.status(500).json({ status: 500, detail: e.message }); }
+    try { const r = await inventoryService.createWarehouse(req.body); res.status(201).json({ data: r }); }
+    catch (e: any) { logger.error('Warehouse create failed', { error: e.message }); res.status(500).json({ status: 500, detail: e.message }); }
 });
 
 router.get('/stock', rbacMiddleware('inventory.view'), async (req: Request, res: Response) => {
@@ -98,7 +98,7 @@ router.post('/adjustments', rbacMiddleware('inventory.adjustments'), async (req:
     });
     logger.info('Stock adjustment created', { count: result.length, tenantId: tenantId.toString() });
     res.status(201).json({ data: { message: `${result.length} adjustment(s) created`, ids: result.map((a: any) => a.id.toString()) } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Adjustment create failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.patch('/adjustments/:id/approve', rbacMiddleware('inventory.adjustments'), async (req: Request, res: Response) => {
@@ -124,7 +124,7 @@ router.patch('/adjustments/:id/approve', rbacMiddleware('inventory.adjustments')
       });
     });
     res.json({ data: { message: 'Adjustment approved' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Adjustment approve failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 // ---- Stock Transfers ----
@@ -199,7 +199,7 @@ router.get('/transfers/:id', rbacMiddleware('inventory.view'), async (req: Reque
         })),
       },
     });
-  } catch { res.status(500).json({ status: 500 }); }
+  } catch { logger.error('Transfer detail failed'); res.status(500).json({ status: 500 }); }
 });
 
 router.post('/transfers', rbacMiddleware('inventory.transfer'), async (req: Request, res: Response) => {

@@ -56,7 +56,7 @@ router.get('/:id', rbacMiddleware('accounting.view'), async (req: Request, res: 
       else if (l.account?.accountType === 'EXPENSE') totalExpenses += Number(l.debitAmount) - Number(l.creditAmount);
     }
     res.json({ data: { ...mapFY(fy), totalRevenue: Math.max(0, totalRevenue), totalExpenses: Math.max(0, totalExpenses), netIncome: totalRevenue - totalExpenses } });
-  } catch { res.status(500).json({ status: 500 }); }
+  } catch { logger.error('Financial year detail failed'); res.status(500).json({ status: 500 }); }
 });
 
 // Create FY
@@ -69,7 +69,7 @@ router.post('/', rbacMiddleware('accounting.accounts.manage'), async (req: Reque
     if (overlapping) { res.status(409).json({ status: 409, detail: 'Overlaps with existing financial year' }); return; }
     const fy = await prisma.financialYear.create({ data: { tenantId: ctx!.tenantId, name, startDate: new Date(startDate), endDate: new Date(endDate), status: 'OPEN', notes: notes || null } });
     res.status(201).json({ data: mapFY(fy) });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Financial year create failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 // Update FY
@@ -87,7 +87,7 @@ router.put('/:id', rbacMiddleware('accounting.accounts.manage'), async (req: Req
     if (notes !== undefined) data.notes = notes;
     await prisma.financialYear.update({ where: { id: fy.id }, data });
     res.json({ data: { message: 'Financial year updated' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Financial year update failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 // Delete FY
@@ -101,7 +101,7 @@ router.delete('/:id', rbacMiddleware('accounting.accounts.manage'), async (req: 
     if (txCount > 0) { res.status(400).json({ status: 400, detail: `Cannot delete: ${txCount} transactions reference this financial year` }); return; }
     await prisma.financialYear.delete({ where: { id: fy.id } });
     res.json({ data: { message: 'Financial year deleted' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Financial year delete failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 // Activate FY
@@ -114,7 +114,7 @@ router.patch('/:id/activate', rbacMiddleware('accounting.accounts.manage'), asyn
     await prisma.financialYear.updateMany({ where: { tenantId: ctx!.tenantId, status: 'OPEN' }, data: { status: 'OPEN' } }); // keep others OPEN but this just sets active
     // The concept of "active" is just the latest OPEN year — we don't need a separate flag
     res.json({ data: { message: `${fy.name} is now the active financial year` } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Financial year activate failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 // Preview close
@@ -140,7 +140,7 @@ router.get('/:id/preview', rbacMiddleware('accounting.accounts.manage'), async (
       }
     }
     res.json({ data: { revenue: { accounts: revenue, total: totalRevenue }, expenses: { accounts: expensesTotal, total: totalExpenses }, netIncome: totalRevenue - totalExpenses, closingEntriesCount: revenue.length + expensesTotal.length + 1 } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Financial year preview failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 // Close FY

@@ -54,27 +54,27 @@ router.get('/export/csv', rbacMiddleware('vendors.view'), async (req: Request, r
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="vendors-${new Date().toISOString().slice(0,10)}.csv"`);
     return res.send(csv);
-  } catch { res.status(500).json({ status: 500, detail: 'Failed to export vendors' }); }
+  } catch { logger.error('Vendor export failed'); res.status(500).json({ status: 500, detail: 'Failed to export vendors' }); }
 });
 
 router.get('/:id', rbacMiddleware('vendors.view'), async (req: Request, res: Response) => {
-  try { const v = await vendorService.getById(BigInt(req.params.id)); if (!v) { res.status(404).json({ status: 404 }); return; } res.json({ data: v }); }
-  catch { res.status(500).json({ status: 500 }); }
+    try { const v = await vendorService.getById(BigInt(req.params.id)); if (!v) { res.status(404).json({ status: 404 }); return; } res.json({ data: v }); }
+    catch { logger.error('Vendor detail failed'); res.status(500).json({ status: 500 }); }
 });
 
 router.post('/', rbacMiddleware('vendors.create'), async (req: Request, res: Response) => {
-  try { const r = await vendorService.create(req.body); res.status(201).json({ data: r }); }
-  catch (e: any) { res.status(500).json({ status: 500, detail: e.message }); }
+    try { const r = await vendorService.create(req.body); res.status(201).json({ data: r }); }
+    catch (e: any) { logger.error('Vendor create failed', { error: e.message }); res.status(500).json({ status: 500, detail: e.message }); }
 });
 
 router.put('/:id', rbacMiddleware('vendors.update'), async (req: Request, res: Response) => {
-  try { await vendorService.update(BigInt(req.params.id), req.body); res.json({ data: { message: 'Updated' } }); }
-  catch (e: any) { res.status(500).json({ status: 500, detail: e.message }); }
+    try { await vendorService.update(BigInt(req.params.id), req.body); res.json({ data: { message: 'Updated' } }); }
+    catch (e: any) { logger.error('Vendor update failed', { error: e.message }); res.status(500).json({ status: 500, detail: e.message }); }
 });
 
 router.delete('/:id', rbacMiddleware('vendors.delete'), async (req: Request, res: Response) => {
-  try { await vendorService.delete(BigInt(req.params.id)); res.json({ data: { message: 'Deleted' } }); }
-  catch (e: any) { res.status(500).json({ status: 500, detail: e.message }); }
+    try { await vendorService.delete(BigInt(req.params.id)); res.json({ data: { message: 'Deleted' } }); }
+    catch (e: any) { logger.error('Vendor delete failed', { error: e.message }); res.status(500).json({ status: 500, detail: e.message }); }
 });
 
 // ---- Vendor Payments ----
@@ -173,7 +173,7 @@ router.get('/:id/statement', rbacMiddleware('vendors.view'), async (req: Request
       orderBy: { createdAt: 'desc' }, take: 100,
     });
     res.json({ data: { vendorName: vendor.companyName, currentBalance: Number(vendor.currentBalance), entries: entries.map((e) => ({ id: e.id.toString(), type: e.type, amount: Number(e.amount), balanceBefore: Number(e.balanceBefore), balanceAfter: Number(e.balanceAfter), referenceId: e.referenceId?.toString() || null, referenceType: e.referenceType, notes: e.notes, createdAt: e.createdAt })) } });
-  } catch { res.status(500).json({ status: 500 }); }
+  } catch { logger.error('Vendor ledger failed'); res.status(500).json({ status: 500 }); }
 });
 
 // Vendor activity log

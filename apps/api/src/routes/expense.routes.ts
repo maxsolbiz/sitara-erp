@@ -40,7 +40,7 @@ router.post('/categories', rbacMiddleware('expenses.categories.manage'), async (
     if (!name) { res.status(400).json({ status: 400, detail: 'Name is required' }); return; }
     const created = await prisma.expenseCategory.create({ data: { tenantId: ctx.tenantId, name, description: description || null } });
     res.status(201).json({ data: { id: created.id.toString(), name: created.name } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Expense category create failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.put('/categories/:id', rbacMiddleware('expenses.categories.manage'), async (req: Request, res: Response) => {
@@ -52,7 +52,7 @@ router.put('/categories/:id', rbacMiddleware('expenses.categories.manage'), asyn
     if (description !== undefined) data.description = description;
     await prisma.expenseCategory.updateMany({ where: { id: BigInt(req.params.id), tenantId: ctx.tenantId }, data });
     res.json({ data: { message: 'Category updated' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Expense category update failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.delete('/categories/:id', rbacMiddleware('expenses.categories.manage'), async (req: Request, res: Response) => {
@@ -60,7 +60,7 @@ router.delete('/categories/:id', rbacMiddleware('expenses.categories.manage'), a
     const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
     await prisma.expenseCategory.updateMany({ where: { id: BigInt(req.params.id), tenantId: ctx.tenantId }, data: { isActive: false } });
     res.json({ data: { message: 'Category deactivated' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Expense category delete failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 // ---- Expenses ----
@@ -140,7 +140,7 @@ router.get('/export/csv', rbacMiddleware('expenses.view'), async (req: Request, 
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="expenses-${new Date().toISOString().slice(0,10)}.csv"`);
     return res.send(csv);
-  } catch { res.status(500).json({ status: 500, detail: 'Failed to export expenses' }); }
+  } catch { logger.error('Expense export failed'); res.status(500).json({ status: 500, detail: 'Failed to export expenses' }); }
 });
 
 router.put('/:id', rbacMiddleware('expenses.update'), async (req: Request, res: Response) => {
@@ -167,7 +167,7 @@ router.delete('/:id', rbacMiddleware('expenses.delete'), async (req: Request, re
     const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
     await prisma.expense.updateMany({ where: { id: BigInt(req.params.id), tenantId: ctx.tenantId }, data: { status: 'CANCELLED' } });
     res.json({ data: { message: 'Expense cancelled' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Expense cancel failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.patch('/:id/approve', rbacMiddleware('expenses.approve'), async (req: Request, res: Response) => {

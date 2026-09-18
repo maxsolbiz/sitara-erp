@@ -72,7 +72,7 @@ router.get('/export/csv', rbacMiddleware('sales.view'), async (req: Request, res
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="sales-${new Date().toISOString().slice(0,10)}.csv"`);
     return res.send(csv);
-  } catch { res.status(500).json({ status: 500, detail: 'Failed to export sales' }); }
+  } catch { logger.error('Sale export failed'); res.status(500).json({ status: 500, detail: 'Failed to export sales' }); }
 });
 
 router.get('/:id', rbacMiddleware('sales.view'), async (req: Request, res: Response) => {
@@ -81,6 +81,7 @@ router.get('/:id', rbacMiddleware('sales.view'), async (req: Request, res: Respo
     if (!sale) { res.status(404).json({ status: 404, title: 'Not Found' }); return; }
     res.json({ data: sale });
   } catch (error: any) {
+    logger.error('Sale detail failed', { error: error.message });
     res.status(500).json({ status: 500, title: 'Error', detail: 'Failed to load sale' });
   }
 });
@@ -319,7 +320,7 @@ router.post('/:id/send-email', rbacMiddleware('sales.email'), async (req: Reques
       logger.error('Email send failed', { error: sendError.message });
       res.json({ data: { sent: false, reason: `Failed to send: ${sendError.message}` } });
     }
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Receipt email failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 // POST /sales/:id/print — print receipt to thermal printer
@@ -349,7 +350,7 @@ router.get('/:id/receipt-link', rbacMiddleware('sales.view'), async (req: Reques
     if (!sale) { res.status(404).json({ status: 404, detail: 'Sale not found' }); return; }
     const token = signReceiptLink(sale.tenantId, sale.id);
     res.json({ data: { token, path: `/public/receipt/${sale.id.toString()}?t=${token}` } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Receipt link failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 // Public receipt handler — registered separately without auth middleware
@@ -390,7 +391,7 @@ export async function publicReceiptHandler(req: Request, res: Response) {
     }
     const settings = (sale.tenant?.settings || {}) as any;
     res.json({ data: { companyName: settings.companyName || sale.tenant?.name || 'Business', companyAddress: settings.address || '', companyPhone: settings.phone || '', companyEmail: settings.email || '', saleNumber: sale.saleNumber, saleDate: sale.saleDate, customerName: sale.customer?.fullName || 'Walk-in', items: sale.items.map((i) => ({ productName: i.product?.name || 'Item', quantity: i.quantity, unitPrice: Number(i.unitPrice), lineTotal: Number(i.lineTotal) })), subtotal: Number(sale.subtotal), discount: Number(sale.discountAmount), total: Number(sale.totalAmount), paymentMethod: sale.payments[0]?.paymentMethod || 'N/A', paid: Number(sale.paidAmount), status: sale.status } });
-  } catch { res.status(500).json({ status: 500 }); }
+  } catch { logger.error('Public receipt failed'); res.status(500).json({ status: 500 }); }
 }
 
 export default router;
