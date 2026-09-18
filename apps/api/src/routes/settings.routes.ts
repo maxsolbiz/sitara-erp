@@ -80,7 +80,7 @@ router.post('/logos/:slot', rbacMiddleware('settings.update'), captureTenant, up
     const meta = { path: `/uploads/logos/${ctx.tenantId}/${filename}`, mimeType: req.file.mimetype, size: req.file.size, updatedAt: new Date().toISOString() };
     await settingService.upsertSettings(ctx.tenantId, { [`logo_${slot}`]: meta });
     res.json({ data: meta });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Logo upload failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.delete('/logos/:slot', rbacMiddleware('settings.update'), async (req: Request, res: Response) => {
@@ -100,7 +100,7 @@ router.delete('/logos/:slot', rbacMiddleware('settings.update'), async (req: Req
       } catch { /* best-effort file removal */ }
     }
     res.json({ data: { message: 'Logo slot reverted to default' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Logo revert failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.post('/email/test', rbacMiddleware('settings.update'), async (req: Request, res: Response) => {
@@ -171,7 +171,7 @@ router.put('/appearance', rbacMiddleware('settings.update'), async (req: Request
     await settingService.upsertSettings(ctx.tenantId, body);
     logger.info('Settings updated', { category: 'appearance', tenantId: ctx.tenantId.toString() });
     res.json({ data: { message: 'Appearance settings updated' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Appearance update failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.get('/:category', rbacMiddleware('settings.view'), async (req: Request, res: Response) => {
@@ -228,7 +228,7 @@ router.put('/:category', rbacMiddleware('settings.update'), async (req: Request,
     }
     logger.info('Settings updated', { category, tenantId: ctx.tenantId.toString() });
     res.json({ data: { message: `${category} settings updated` } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Settings update failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 // Users
@@ -368,7 +368,7 @@ router.put('/hardware', rbacMiddleware('settings.update'), async (req: Request, 
     for (const [k, v] of Object.entries(req.body)) body[k.startsWith('hardware_') ? k : `hardware_${k}`] = v;
     await settingService.upsertSettings(ctx.tenantId, body);
     res.json({ data: { message: 'Hardware settings saved' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Hardware update failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.post('/hardware/test-print', rbacMiddleware('settings.update'), async (req: Request, res: Response) => {
@@ -401,6 +401,7 @@ router.get('/exchange-rate', rbacMiddleware('settings.view'), async (_req: Reque
     const rate = await fetchUsdToPkr();
     res.json({ success: true, data: { usdPkr: rate, currency: 'PKR' } });
   } catch (error: any) {
+    logger.error('Exchange rate failed', { error: error.message });
     res.status(500).json({ success: false, error: error.message });
   }
 });

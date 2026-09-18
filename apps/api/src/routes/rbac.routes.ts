@@ -43,7 +43,7 @@ router.get('/roles/:id', rbacMiddleware('rbac.manage'), async (req: Request, res
     });
     if (!role) { res.status(404).json({ status: 404, detail: 'Role not found' }); return; }
     res.json({ data: { id: role.id.toString(), name: role.name, slug: role.slug, description: role.description, isSystem: role.isSystem, users: role.users.map((u) => ({ id: u.user.id.toString(), fullName: u.user.fullName, email: u.user.email })), permissions: role.permissions.map((p) => ({ id: p.permission.id.toString(), slug: p.permission.slug, name: p.permission.name, module: p.permission.module })) } });
-  } catch { res.status(500).json({ status: 500, detail: 'Failed to load role' }); }
+  } catch { logger.error('Role detail failed'); res.status(500).json({ status: 500, detail: 'Failed to load role' }); }
 });
 
 // POST /roles — create role
@@ -78,7 +78,7 @@ router.post('/roles', rbacMiddleware('rbac.manage'), async (req: Request, res: R
       ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
     });
     res.status(201).json({ data: { id: role.id.toString(), name, slug } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Role create failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 // PUT /roles/:id — update role
@@ -100,7 +100,7 @@ router.put('/roles/:id', rbacMiddleware('rbac.manage'), async (req: Request, res
       ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
     });
     res.json({ data: { message: 'Role updated' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Role update failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 // DELETE /roles/:id — delete role
@@ -123,7 +123,7 @@ router.delete('/roles/:id', rbacMiddleware('rbac.manage'), async (req: Request, 
       ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
     });
     res.json({ data: { message: 'Role deleted' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Role delete failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 // PATCH /roles/:id/permissions — replace all permissions
@@ -159,7 +159,7 @@ router.patch('/roles/:id/permissions', rbacMiddleware('rbac.manage'), async (req
       ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
     });
     res.json({ data: { message: 'Permissions updated' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Role permissions failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 // GET /permissions — list all permissions grouped by module
@@ -204,7 +204,7 @@ router.post('/roles/:id/users/:userId', rbacMiddleware('rbac.manage'), async (re
       ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
     });
     res.json({ data: { message: 'Role assigned' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Role assign failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 // DELETE /roles/:id/users/:userId — remove role from user
@@ -235,7 +235,7 @@ router.delete('/roles/:id/users/:userId', rbacMiddleware('rbac.manage'), async (
       ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
     });
     res.json({ data: { message: 'Role removed' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Role unassign failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 export default router;

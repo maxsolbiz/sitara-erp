@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { rbacMiddleware } from '../middleware/rbac';
+import logger from '../utils/logger';
 
 const router = Router();
 
@@ -10,7 +11,7 @@ router.get('/', async (req: Request, res: Response) => {
     const tenant = await prisma.tenant.findUnique({ where: { id: BigInt(req.user.tenantId) } });
     if (!tenant) { res.status(404).json({ status: 404 }); return; }
     res.json({ data: { id: tenant.id.toString(), name: tenant.name, slug: tenant.slug, plan: tenant.plan, status: tenant.status, settings: tenant.settings, createdAt: tenant.createdAt } });
-  } catch { res.status(500).json({ status: 500 }); }
+  } catch { logger.error('Tenant detail failed'); res.status(500).json({ status: 500 }); }
 });
 
 router.put('/settings', rbacMiddleware('settings.update'), async (req: Request, res: Response) => {
@@ -22,7 +23,7 @@ router.put('/settings', rbacMiddleware('settings.update'), async (req: Request, 
     if (settings !== undefined) data.settings = settings;
     await prisma.tenant.update({ where: { id: BigInt(req.user.tenantId) }, data });
     res.json({ data: { message: 'Tenant updated' } });
-  } catch { res.status(500).json({ status: 500 }); }
+  } catch { logger.error('Tenant update failed'); res.status(500).json({ status: 500 }); }
 });
 
 router.get('/usage', async (req: Request, res: Response) => {

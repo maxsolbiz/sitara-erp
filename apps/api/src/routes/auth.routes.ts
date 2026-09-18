@@ -247,7 +247,7 @@ router.put('/profile', authMiddleware, async (req: Request, res: Response) => {
     if (email !== undefined) data.email = email;
     await prisma.user.update({ where: { id: userId }, data });
     res.json({ data: { message: 'Profile updated' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Profile update failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.put('/password', authMiddleware, async (req: Request, res: Response) => {
@@ -270,7 +270,7 @@ router.put('/password', authMiddleware, async (req: Request, res: Response) => {
     // lands on /login via the standard 401 path.
     await getRedis().del(`refresh:${userId}`).catch(() => {});
     res.json({ data: { message: 'Password changed' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Password change failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 router.get('/sessions', authMiddleware, async (req: Request, res: Response) => {
@@ -301,7 +301,7 @@ router.delete('/sessions/:id', authMiddleware, async (req: Request, res: Respons
       await getRedis().del(`refresh:${userId}`).catch(() => {});
     }
     res.json({ data: { message: 'Session terminated' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('Session terminate failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 export default router;

@@ -41,7 +41,7 @@ router.get('/:id', rbacMiddleware('users.view'), async (req: Request, res: Respo
     });
     if (!user) { res.status(404).json({ status: 404, detail: 'User not found' }); return; }
     res.json({ data: { id: user.id.toString(), username: user.username, email: user.email, fullName: user.fullName, isActive: user.isActive, isSuperAdmin: user.isSuperAdmin, status: user.status, lastLogin: user.lastLogin, createdAt: user.createdAt, roleAssignments: user.roleAssignments.map((ra: any) => ({ id: ra.role.id.toString(), name: ra.role.name, slug: ra.role.slug, description: ra.role.description })) } });
-  } catch { res.status(500).json({ status: 500, detail: 'Failed to load user' }); }
+  } catch { logger.error('User detail failed'); res.status(500).json({ status: 500, detail: 'Failed to load user' }); }
 });
 
 // POST /users — create user
@@ -76,7 +76,7 @@ router.post('/', rbacMiddleware('users.manage'), async (req: Request, res: Respo
       ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
     });
     res.status(201).json({ data: { id: user.id.toString(), username: user.username, email: user.email } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('User create failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 // PUT /users/:id — update user
@@ -101,7 +101,7 @@ router.put('/:id', rbacMiddleware('users.manage'), async (req: Request, res: Res
       });
     }
     res.json({ data: { message: 'User updated' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('User update failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 // DELETE /users/:id — soft delete
@@ -130,7 +130,7 @@ router.delete('/:id', rbacMiddleware('users.manage'), async (req: Request, res: 
       ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
     });
     res.json({ data: { message: 'User deactivated' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('User delete failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 // PATCH /users/:id/password — change password
@@ -143,7 +143,7 @@ router.patch('/:id/password', rbacMiddleware('users.manage'), async (req: Reques
     // Admin-initiated reset: force the user to set their own password on next login.
     await prisma.user.updateMany({ where: { id: BigInt(req.params.id), tenantId: ctx.tenantId }, data: { passwordHash, mustChangePassword: true } });
     res.json({ data: { message: 'Password updated' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('User password failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 // PATCH /users/:id/roles — replace all roles
@@ -178,7 +178,7 @@ router.patch('/:id/roles', rbacMiddleware('users.manage'), async (req: Request, 
       ipAddress: req.ip || '', userAgent: (req.headers['user-agent'] as string) || '',
     });
     res.json({ data: { message: 'Roles updated' } });
-  } catch (error: any) { res.status(500).json({ status: 500, detail: error.message }); }
+  } catch (error: any) { logger.error('User roles failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
 });
 
 export default router;

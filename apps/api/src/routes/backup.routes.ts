@@ -6,6 +6,7 @@ import { getTenantContext } from '../lib/prisma';
 import { rbacMiddleware } from '../middleware/rbac';
 import { createBackup, validateBackup, requestRestoreToken, executeRestore } from '../services/backup.service';
 import { parseIdParam } from '../utils/helpers';
+import logger from '../utils/logger';
 
 const router = Router();
 
@@ -33,7 +34,7 @@ router.get('/', rbacMiddleware('settings.view'), async (req: Request, res: Respo
     const lastCompleted = await prisma.backupRecord.findFirst({ where: { tenantId: ctx.tenantId, status: 'completed' }, orderBy: { createdAt: 'desc' } });
     const totalStorageBytes = records.filter(r => r.status === 'completed').reduce((sum, r) => sum + Number(r.fileSize), 0);
     res.json({ success: true, data: records.map(r => ({ id: r.id.toString(), filename: r.filename, fileSize: Number(r.fileSize), backupType: r.backupType, status: r.status, checksum: r.checksum, appVersion: r.appVersion, schemaVersion: r.schemaVersion, recordCounts: r.recordCounts, durationMs: r.durationMs, createdAt: r.createdAt, completedAt: r.completedAt, restoredAt: r.restoredAt, errorMessage: r.errorMessage, notes: r.notes, creator: r.creator ? { name: r.creator.fullName } : null, restorer: r.restorer ? { name: r.restorer.fullName } : null })), meta: { page, perPage, total, totalPages: Math.ceil(total / perPage) }, stats: { lastBackupAt: lastCompleted?.completedAt || null, totalStorageMb: (totalStorageBytes / (1024 * 1024)).toFixed(1), totalBackups: total } });
-  } catch (error: any) { res.status(500).json({ success: false, error: error.message }); }
+  } catch (error: any) { logger.error('Backup list failed', { error: error.message }); res.status(500).json({ success: false, error: error.message }); }
 });
 
 router.post('/', rbacMiddleware('settings.backup'), async (req: Request, res: Response) => {
@@ -43,7 +44,7 @@ router.post('/', rbacMiddleware('settings.backup'), async (req: Request, res: Re
     if (!['full', 'config', 'master_data', 'transactions'].includes(backupType)) { res.status(400).json({ success: false, error: 'Invalid backupType' }); return; }
     const backup = await createBackup({ tenantId: ctx.tenantId, backupType, notes, createdBy: req.user ? BigInt(req.user.userId) : undefined });
     res.json({ success: true, data: { id: backup.id.toString(), filename: backup.filename, status: backup.status, fileSize: Number(backup.fileSize), backupType: backup.backupType, durationMs: backup.durationMs, completedAt: backup.completedAt, checksum: backup.checksum, recordCounts: backup.recordCounts } });
-  } catch (error: any) { res.status(500).json({ success: false, error: error.message }); }
+  } catch (error: any) { logger.error('Backup create failed', { error: error.message }); res.status(500).json({ success: false, error: error.message }); }
 });
 
 router.get('/:id/download', rbacMiddleware('settings.view'), async (req: Request, res: Response) => {
@@ -56,7 +57,7 @@ router.get('/:id/download', rbacMiddleware('settings.view'), async (req: Request
     res.setHeader('Content-Disposition', `attachment; filename="${record.filename}"`);
     res.setHeader('Content-Length', Number(record.fileSize));
     fs.createReadStream(record.storagePath).pipe(res);
-  } catch (error: any) { res.status(500).json({ success: false, error: error.message }); }
+  } catch (error: any) { logger.error('Backup download failed', { error: error.message }); res.status(500).json({ success: false, error: error.message }); }
 });
 
 router.delete('/:id', rbacMiddleware('settings.backup'), async (req: Request, res: Response) => {
@@ -68,7 +69,7 @@ router.delete('/:id', rbacMiddleware('settings.backup'), async (req: Request, re
     // Act on the verified row's id (scoped check above), not a re-parsed param.
     await prisma.backupRecord.delete({ where: { id: record.id } });
     res.json({ success: true, message: 'Backup deleted' });
-  } catch (error: any) { res.status(500).json({ success: false, error: error.message }); }
+  } catch (error: any) { logger.error('Backup delete failed', { error: error.message }); res.status(500).json({ success: false, error: error.message }); }
 });
 
 router.get('/:id/validate', rbacMiddleware('settings.backup'), async (req: Request, res: Response) => {
@@ -78,7 +79,7 @@ router.get('/:id/validate', rbacMiddleware('settings.backup'), async (req: Reque
     if (!owned) { res.status(404).json({ success: false, error: 'Not found' }); return; }
     const result = await validateBackup(parseInt(req.params.id), ctx.tenantId);
     res.json({ success: true, data: result });
-  } catch (error: any) { res.status(500).json({ success: false, error: error.message }); }
+  } catch (error: any) { logger.error('Backup validate failed', { error: error.message }); res.status(500).json({ success: false, error: error.message }); }
 });
 
 router.post('/:id/restore/request', rbacMiddleware('settings.backup'), async (req: Request, res: Response) => {
@@ -91,7 +92,7 @@ router.post('/:id/restore/request', rbacMiddleware('settings.backup'), async (re
     if (!validation.valid) { res.status(422).json({ success: false, error: 'Backup failed validation', data: validation }); return; }
     const token = await requestRestoreToken(backupId);
     res.json({ success: true, data: { confirmToken: token, expiresInSeconds: 300, validationReport: validation.report, warning: 'Restoring will OVERWRITE all current data.' } });
-  } catch (error: any) { res.status(500).json({ success: false, error: error.message }); }
+  } catch (error: any) { logger.error('Restore request failed', { error: error.message }); res.status(500).json({ success: false, error: error.message }); }
 });
 
 router.post('/:id/restore/confirm', rbacMiddleware('settings.backup'), async (req: Request, res: Response) => {
@@ -101,7 +102,7 @@ router.post('/:id/restore/confirm', rbacMiddleware('settings.backup'), async (re
     if (!confirmToken) { res.status(400).json({ status: 400, error: 'confirmToken required' }); return; }
     const result = await executeRestore({ backupId: parseInt(req.params.id), confirmToken, restoredBy: req.user ? BigInt(req.user.userId) : undefined, tenantId: ctx.tenantId });
     res.json({ success: true, data: result });
-  } catch (error: any) { res.status(500).json({ success: false, error: error.message }); }
+  } catch (error: any) { logger.error('Restore confirm failed', { error: error.message }); res.status(500).json({ success: false, error: error.message }); }
 });
 
 // Auto-backup settings
@@ -130,7 +131,7 @@ router.put('/settings/config', rbacMiddleware('settings.backup'), async (req: Re
       await prisma.setting.upsert({ where: { tenantId_key: { tenantId: ctx.tenantId, key: e.key } }, update: { value: e.value }, create: { tenantId: ctx.tenantId, key: e.key, value: e.value } });
     }
     res.json({ success: true, message: 'Auto-backup settings saved' });
-  } catch { res.status(500).json({ success: false, error: 'Failed to save' }); }
+  } catch { logger.error('Backup config save failed'); res.status(500).json({ success: false, error: 'Failed to save' }); }
 });
 
 export default router;
