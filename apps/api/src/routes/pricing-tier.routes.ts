@@ -26,7 +26,7 @@ router.get('/', rbacMiddleware('pricing-tiers.view'), async (_req: Request, res:
       orderBy: { name: 'asc' },
     });
     res.json({ data: tiers.map((t) => ({ id: t.id.toString(), name: t.name, discountPercent: Number(t.discountPercent), isActive: t.isActive, createdAt: t.createdAt.toISOString() })) });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Pricing tiers list failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.post('/', rbacMiddleware('pricing-tiers.create'), async (req: Request, res: Response) => {

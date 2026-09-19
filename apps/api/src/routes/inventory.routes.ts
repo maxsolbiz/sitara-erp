@@ -22,12 +22,12 @@ router.param('id', (req, res, next, val) => {
 
 router.get('/stats', rbacMiddleware('inventory.view'), async (_req: Request, res: Response) => {
   try { const s = await inventoryService.getStats(); res.json({ data: s }); }
-  catch { res.json({ data: { products: 0, totalStock: 0, movements: 0, lowStock: 0 } }); }
+  catch (error: any) { logger.warn('Inventory stats failed', { error: error.message }); res.json({ data: { products: 0, totalStock: 0, movements: 0, lowStock: 0 } }); }
 });
 
 router.get('/warehouses', rbacMiddleware('inventory.view'), async (_req: Request, res: Response) => {
   try { const w = await inventoryService.getWarehouses(); res.json({ data: w }); }
-  catch { res.json({ data: [] }); }
+  catch (error: any) { logger.warn('Inventory warehouses failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.post('/warehouses', rbacMiddleware('inventory.adjust'), async (req: Request, res: Response) => {
@@ -37,17 +37,17 @@ router.post('/warehouses', rbacMiddleware('inventory.adjust'), async (req: Reque
 
 router.get('/stock', rbacMiddleware('inventory.view'), async (req: Request, res: Response) => {
   try { const s = await inventoryService.getStock({ warehouseId: req.query.warehouseId ? Number(req.query.warehouseId) : undefined, lowStock: req.query.lowStock === 'true' }); res.json({ data: s }); }
-  catch { res.json({ data: [] }); }
+  catch (error: any) { logger.warn('Inventory stock failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.get('/movements', rbacMiddleware('inventory.view'), async (req: Request, res: Response) => {
   try { const r = await inventoryService.getMovements({ productId: req.query.productId ? Number(req.query.productId) : undefined, warehouseId: req.query.warehouseId ? Number(req.query.warehouseId) : undefined, page: req.query.page ? Number(req.query.page) : 1 }); res.json({ data: r.items, meta: { total: r.total } }); }
-  catch { res.json({ data: [] }); }
+  catch (error: any) { logger.warn('Inventory movements failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.get('/alerts', rbacMiddleware('inventory.view'), async (_req: Request, res: Response) => {
   try { const s = await inventoryService.getStock({ lowStock: true }); res.json({ data: s }); }
-  catch { res.json({ data: [] }); }
+  catch (error: any) { logger.warn('Inventory alerts failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 // ---- Adjustments ----
@@ -64,7 +64,7 @@ router.get('/adjustments', rbacMiddleware('inventory.view'), async (req: Request
       prisma.stockAdjustment.count({ where: { tenantId: ctx.tenantId } }),
     ]);
     res.json({ data: items.map((a) => ({ id: a.id.toString(), productId: a.productId.toString(), productName: a.product?.name, warehouseId: a.warehouseId.toString(), warehouseName: a.warehouse?.name, adjustmentType: a.adjustmentType, quantityBefore: a.quantityBefore, quantityAdjusted: a.quantityAdjusted, quantityAfter: a.quantityAfter, reason: a.reason, status: a.approvedAt ? 'APPROVED' : a.createdAt ? 'PENDING' : 'PENDING', createdAt: a.createdAt })), meta: { total, page } });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Inventory adjustments failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.post('/adjustments', rbacMiddleware('inventory.adjustments'), async (req: Request, res: Response) => {
@@ -165,7 +165,7 @@ router.get('/transfers', rbacMiddleware('inventory.view'), async (req: Request, 
       })),
       meta: { total, page },
     });
-  } catch { res.json({ data: [], meta: {} }); }
+  } catch (error: any) { logger.warn('Inventory transfers failed', { error: error.message }); res.json({ data: [], meta: {} }); }
 });
 
 router.get('/transfers/:id', rbacMiddleware('inventory.view'), async (req: Request, res: Response) => {

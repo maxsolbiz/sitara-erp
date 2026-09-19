@@ -23,7 +23,7 @@ router.param('id', (req, res, next, val) => {
 // ---- PO ORDERS ----
 router.get('/orders/stats', rbacMiddleware('purchases.view'), async (_req: Request, res: Response) => {
   try { const s = await purchaseService.getStats(); res.json({ data: s }); }
-  catch { res.json({ data: { total: 0, pending: 0, partial: 0, received: 0, cancelled: 0 } }); }
+  catch (error: any) { logger.warn('Purchase stats failed', { error: error.message }); res.json({ data: { total: 0, pending: 0, partial: 0, received: 0, cancelled: 0 } }); }
 });
 
 router.get('/orders', rbacMiddleware('purchases.view'), async (req: Request, res: Response) => {
@@ -81,7 +81,7 @@ router.get('/receipts', rbacMiddleware('purchases.view'), async (req: Request, r
       prisma.purchaseReceipt.count({ where: { tenantId: ctx.tenantId } }),
     ]);
     res.json({ data: items.map((r) => ({ id: r.id.toString(), receiptNumber: r.receiptNumber, orderNumber: r.purchaseOrder.orderNumber, vendorName: r.purchaseOrder.vendor.companyName, receiptDate: r.receiptDate, totalItems: r.totalItems, itemCount: r.items.length })), meta: { total, page } });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Purchase receipts failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.get('/receipts/:id', rbacMiddleware('purchases.view'), async (req: Request, res: Response) => {
@@ -104,7 +104,7 @@ router.get('/orders/:id/receipts', rbacMiddleware('purchases.view'), async (req:
       include: { items: true, warehouse: { select: { name: true } } },
     });
     res.json({ data: receipts.map((r) => ({ id: r.id.toString(), receiptNumber: r.receiptNumber, receiptDate: r.receiptDate, totalItems: r.totalItems, warehouseName: r.warehouse?.name })) });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Order receipts failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.post('/receipts', rbacMiddleware('purchases.receive'), async (req: Request, res: Response) => {
@@ -242,7 +242,7 @@ router.get('/returns', rbacMiddleware('purchases.view'), async (req: Request, re
       prisma.purchaseReturn.count({ where: { tenantId: ctx.tenantId } }),
     ]);
     res.json({ data: items.map((r) => ({ id: r.id.toString(), returnNumber: r.returnNumber, vendorName: r.vendor.companyName, returnDate: r.returnDate, totalAmount: Number(r.totalAmount), reason: r.reason, status: r.status, itemCount: r.items.length })), meta: { total, page } });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Purchase returns failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.get('/returns/:id', rbacMiddleware('purchases.view'), async (req: Request, res: Response) => {

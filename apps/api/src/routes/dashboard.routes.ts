@@ -24,32 +24,32 @@ router.get('/stats', rbacMiddleware('reports.view'), async (_req: Request, res: 
 
 router.get('/recent-sales', rbacMiddleware('reports.view'), async (_req: Request, res: Response) => {
   try { const sales = await dashboardService.getRecentSales(); res.json({ data: sales }); }
-  catch { res.json({ data: [] }); }
+  catch (error: any) { logger.warn('Dashboard recent sales failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.get('/low-stock', rbacMiddleware('reports.view'), async (_req: Request, res: Response) => {
   try { const items = await dashboardService.getLowStockItems(); res.json({ data: items }); }
-  catch { res.json({ data: [] }); }
+  catch (error: any) { logger.warn('Dashboard low stock failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.get('/sales-chart', rbacMiddleware('reports.view'), async (_req: Request, res: Response) => {
   try { const data = await dashboardService.getSalesChart(); res.json({ data }); }
-  catch { res.json({ data: [] }); }
+  catch (error: any) { logger.warn('Dashboard sales chart failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.get('/top-products', rbacMiddleware('reports.view'), async (_req: Request, res: Response) => {
   try { const data = await dashboardService.getTopProducts(); res.json({ data }); }
-  catch { res.json({ data: [] }); }
+  catch (error: any) { logger.warn('Dashboard top products failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.get('/payment-breakdown', rbacMiddleware('reports.view'), async (_req: Request, res: Response) => {
   try { const data = await dashboardService.getPaymentBreakdown(); res.json({ data }); }
-  catch { res.json({ data: [] }); }
+  catch (error: any) { logger.warn('Dashboard payment breakdown failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.get('/pending-actions', rbacMiddleware('reports.view'), async (_req: Request, res: Response) => {
   try { const data = await dashboardService.getPendingActions(); res.json({ data }); }
-  catch { res.json({ data: {} }); }
+  catch (error: any) { logger.warn('Dashboard pending actions failed', { error: error.message }); res.json({ data: {} }); }
 });
 
 export default router;

@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { getTenantContext } from '../lib/prisma';
 import { rbacMiddleware } from '../middleware/rbac';
+import logger from '../utils/logger';
 
 const router = Router();
 
@@ -14,7 +15,7 @@ router.get('/', async (req: Request, res: Response) => {
       take: 50,
     });
     res.json({ data: logs.map((l: any) => ({ id: l.id.toString(), saleId: l.saleId.toString(), returnNumber: l.returnNumber, status: l.status, errorMessage: l.errorMessage, createdAt: l.createdAt })) });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Return logs list failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.get('/failed', async (req: Request, res: Response) => {
@@ -26,7 +27,7 @@ router.get('/failed', async (req: Request, res: Response) => {
       take: 50,
     });
     res.json({ data: logs.map((l: any) => ({ id: l.id.toString(), saleId: l.saleId.toString(), returnNumber: l.returnNumber, errorMessage: l.errorMessage, createdAt: l.createdAt })) });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Failed return logs list failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.get('/stats', async (req: Request, res: Response) => {
@@ -38,7 +39,7 @@ router.get('/stats', async (req: Request, res: Response) => {
       prisma.returnProcessingLog.count({ where: { tenantId: ctx.tenantId, status: 'FAILED' } }),
     ]);
     res.json({ data: { total, success, failed } });
-  } catch { res.json({ data: {} }); }
+  } catch (error: any) { logger.warn('Return logs stats failed', { error: error.message }); res.json({ data: {} }); }
 });
 
 export default router;

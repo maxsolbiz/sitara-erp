@@ -31,7 +31,7 @@ router.get('/stats', rbacMiddleware('sales.view'), async (req: Request, res: Res
     const scope = req.user ? await getUserScope(BigInt(req.user.userId), BigInt(req.user.tenantId)) : 'all';
     const stats = await saleService.getStats(scope === 'own' ? req.user!.userId : undefined);
     res.json({ data: stats });
-  } catch { res.json({ data: { todaySales: 0, todayRevenue: 0, totalSales: 0, totalRevenue: 0, cancelledSales: 0, avgOrderValue: 0 } }); }
+  } catch (error: any) { logger.warn('Sales stats failed', { error: error.message }); res.json({ data: { todaySales: 0, todayRevenue: 0, totalSales: 0, totalRevenue: 0, cancelledSales: 0, avgOrderValue: 0 } }); }
 });
 
 router.get('/', rbacMiddleware('sales.view'), async (req: Request, res: Response) => {
@@ -334,7 +334,7 @@ router.post('/:id/print', rbacMiddleware('sales.view'), async (req: Request, res
     if (!sale) { res.status(404).json({ status: 404, detail: 'Sale not found' }); return; }
     const result = await printerService.printReceipt(ctx.tenantId, sale);
     res.json({ data: result });
-  } catch (error: any) { res.json({ data: { success: false, reason: error.message } }); }
+  } catch (error: any) { logger.warn('Print sale invoice failed', { error: error.message }); res.json({ data: { success: false, reason: error.message } }); }
 });
 
 // GET /sales/:id/receipt-link — signed public-receipt URL for QR/print

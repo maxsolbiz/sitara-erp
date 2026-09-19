@@ -32,6 +32,7 @@ export function verifyAccessToken(token: string): { userId: string; tenantId: st
     const decoded = jwt.verify(token, config.jwt.secret) as any;
     return { userId: decoded.sub, tenantId: decoded.tid, tenantSlug: decoded.slug, jti: decoded.jti, exp: decoded.exp };
   } catch {
+    // Intentional: invalid/expired token is expected control flow, not a server error.
     return null;
   }
 }
@@ -41,6 +42,7 @@ export function verifyRefreshToken(token: string): { userId: string; tenantId: s
     const decoded = jwt.verify(token, config.jwt.refreshSecret) as any;
     return { userId: decoded.sub, tenantId: decoded.tid, jti: decoded.jti };
   } catch {
+    // Intentional: invalid/expired token is expected control flow, not a server error.
     return null;
   }
 }

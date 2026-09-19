@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { promisify } from 'util';
 import { Prisma } from '@prisma/client';
 import prisma from '../lib/prisma';
+import logger from '../utils/logger';
 
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
@@ -83,7 +84,7 @@ async function exportFullData(tenantId: bigint): Promise<{ data: Record<string, 
       const records = await (prisma as any)[model].findMany({ where: resolveTenantScope(model, tenantId) });
       data[model] = model === 'user' ? records.map(stripUserCredentials) : records;
       counts[model] = records.length;
-    } catch { /* skip */ }
+    } catch (err: any) { throw new Error(`Backup export failed on model '${model}': ${err?.message ?? err}`); }
   }
   return { data, counts };
 }
@@ -103,7 +104,7 @@ async function exportPartialData(tenantId: bigint, backupType: string): Promise<
       const records = await (prisma as any)[model].findMany({ where: resolveTenantScope(model, tenantId) });
       data[model] = model === 'user' ? records.map(stripUserCredentials) : records;
       counts[model] = records.length;
-    } catch { /* skip */ }
+    } catch (err: any) { throw new Error(`Backup export failed on model '${model}': ${err?.message ?? err}`); }
   }
   return { data, counts };
 }
@@ -459,6 +460,6 @@ async function cleanupOldBackups(keepCount: number, tenantId: bigint): Promise<v
     try {
       if (fs.existsSync(r.storagePath)) { fs.unlinkSync(r.storagePath); const dir = path.dirname(r.storagePath); if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir); }
       await prisma.backupRecord.delete({ where: { id: r.id } });
-    } catch {}
+    } catch (err: any) { logger.warn(`Backup retention cleanup failed for record ${r.id}`, { error: err?.message ?? String(err) }); }
   }
 }

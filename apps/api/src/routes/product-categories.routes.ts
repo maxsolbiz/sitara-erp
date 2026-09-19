@@ -31,7 +31,7 @@ router.get('/', rbacMiddleware('products.categories.manage'), async (req: Reques
     if (!all) where.isActive = true;
     const categories = await prisma.productCategory.findMany({ where, orderBy: { sortOrder: 'asc' }, include: { _count: { select: { products: true } } } });
     res.json({ data: categories.map((c) => mapCategory(c, c._count.products)) });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Product categories failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.get('/:id', rbacMiddleware('products.categories.manage'), async (req: Request, res: Response) => {

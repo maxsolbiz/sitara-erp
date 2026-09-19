@@ -25,6 +25,7 @@ function maskEmailSecrets(settings: Record<string, any>): Record<string, any> {
       try {
         out[key] = v.startsWith('v1:') ? maskSecret(decryptSecret(v)) : maskSecret(v);
       } catch {
+        // Intentional: never leak undecryptable secret material — mask and continue.
         out[key] = maskSecret(v);
       }
     }
@@ -46,7 +47,7 @@ router.get('/logos', rbacMiddleware('settings.view'), async (req: Request, res: 
       out[slot] = await settingService.getSetting(ctx.tenantId, `logo_${slot}`, null);
     }
     res.json({ data: out });
-  } catch { res.json({ data: {} }); }
+  } catch (error: any) { logger.warn('Logos load failed', { error: error.message }); res.json({ data: {} }); }
 });
 
 // Multer's streaming multipart parser can detach AsyncLocalStorage context,
@@ -141,7 +142,7 @@ router.get('/', rbacMiddleware('settings.view'), async (_req: Request, res: Resp
     }
     if (grouped.email) grouped.email = maskEmailSecrets(grouped.email);
     res.json({ data: grouped });
-  } catch { res.json({ data: {} }); }
+  } catch (error: any) { logger.warn('Settings load failed', { error: error.message }); res.json({ data: {} }); }
 });
 
 // ---- Appearance (tenant default color theme) ----
@@ -155,7 +156,7 @@ router.get('/appearance', rbacMiddleware('settings.view'), async (_req: Request,
     const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
     const settings = await settingService.getSettings(ctx.tenantId, 'appearance_');
     res.json({ data: settings });
-  } catch { res.json({ data: {} }); }
+  } catch (error: any) { logger.warn('Appearance settings load failed', { error: error.message }); res.json({ data: {} }); }
 });
 
 router.put('/appearance', rbacMiddleware('settings.update'), async (req: Request, res: Response) => {
@@ -181,7 +182,7 @@ router.get('/:category', rbacMiddleware('settings.view'), async (req: Request, r
     const keyPrefix = `${category}_`;
     const settings = await settingService.getSettings(ctx.tenantId, keyPrefix);
     res.json({ data: category === 'email' ? maskEmailSecrets(settings) : settings });
-  } catch { res.json({ data: {} }); }
+  } catch (error: any) { logger.warn('Settings category load failed', { error: error.message }); res.json({ data: {} }); }
 });
 
 router.put('/:category', rbacMiddleware('settings.update'), async (req: Request, res: Response) => {
@@ -240,7 +241,7 @@ router.get('/users', rbacMiddleware('users.view'), async (_req: Request, res: Re
       select: { id: true, username: true, email: true, fullName: true, isActive: true, isSuperAdmin: true, status: true, lastLogin: true },
     });
     res.json({ data: users.map((u) => ({ id: u.id.toString(), username: u.username, email: u.email, fullName: u.fullName, isActive: u.isActive, isSuperAdmin: u.isSuperAdmin, status: u.status, lastLogin: u.lastLogin })) });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Settings users list failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.get('/backup/download', rbacMiddleware('settings.view'), async (_req: Request, res: Response) => {
@@ -358,7 +359,7 @@ router.get('/hardware', rbacMiddleware('settings.view'), async (_req: Request, r
     const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
     const settings = await settingService.getSettings(ctx.tenantId, 'hardware_');
     res.json({ data: settings });
-  } catch { res.json({ data: {} }); }
+  } catch (error: any) { logger.warn('Hardware settings load failed', { error: error.message }); res.json({ data: {} }); }
 });
 
 router.put('/hardware', rbacMiddleware('settings.update'), async (req: Request, res: Response) => {
@@ -376,7 +377,7 @@ router.post('/hardware/test-print', rbacMiddleware('settings.update'), async (re
     const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
     const result = await printerService.testPrint(ctx.tenantId);
     res.json({ data: result });
-  } catch (error: any) { res.json({ data: { success: false, reason: error.message } }); }
+  } catch (error: any) { logger.warn('Hardware test print failed', { error: error.message }); res.json({ data: { success: false, reason: error.message } }); }
 });
 
 router.post('/hardware/open-drawer', rbacMiddleware('settings.update'), async (req: Request, res: Response) => {
@@ -384,7 +385,7 @@ router.post('/hardware/open-drawer', rbacMiddleware('settings.update'), async (r
     const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
     const result = await printerService.openDrawer(ctx.tenantId);
     res.json({ data: result });
-  } catch (error: any) { res.json({ data: { success: false, reason: error.message } }); }
+  } catch (error: any) { logger.warn('Hardware open drawer failed', { error: error.message }); res.json({ data: { success: false, reason: error.message } }); }
 });
 
 router.get('/hardware/status', rbacMiddleware('settings.view'), async (_req: Request, res: Response) => {
@@ -392,7 +393,7 @@ router.get('/hardware/status', rbacMiddleware('settings.view'), async (_req: Req
     const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
     const status = await printerService.checkStatus(ctx.tenantId);
     res.json({ data: status });
-  } catch { res.json({ data: {} }); }
+  } catch (error: any) { logger.warn('Hardware status failed', { error: error.message }); res.json({ data: {} }); }
 });
 
 router.get('/exchange-rate', rbacMiddleware('settings.view'), async (_req: Request, res: Response) => {

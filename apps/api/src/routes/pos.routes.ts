@@ -112,7 +112,7 @@ router.get('/', rbacMiddleware('pos.access'), async (_req: Request, res: Respons
         heldSales: [],
       },
     });
-  } catch { res.json({ data: { products: [], categories: [], heldSales: [] } }); }
+  } catch (error: any) { logger.warn('POS init failed', { error: error.message }); res.json({ data: { products: [], categories: [], heldSales: [] } }); }
 });
 
 router.get('/products', rbacMiddleware('pos.access'), async (_req: Request, res: Response) => {
@@ -131,7 +131,7 @@ router.get('/products', rbacMiddleware('pos.access'), async (_req: Request, res:
         stock: p.warehouseStock.reduce((s, ws) => s + ws.quantity, 0),
       })),
     });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('POS products failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.get('/products/search', rbacMiddleware('pos.access'), async (req: Request, res: Response) => {
@@ -144,7 +144,7 @@ router.get('/products/search', rbacMiddleware('pos.access'), async (req: Request
       take: 20,
     });
     res.json({ data: products.map((p) => ({ id: Number(p.id), name: p.name, sku: p.sku, barcode: p.barcode, sellingPrice: Number(p.sellingPrice), stock: p.warehouseStock.reduce((s, ws) => s + ws.quantity, 0) })) });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('POS product search failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.get('/held-sales', rbacMiddleware('pos.sales.view'), async (req: Request, res: Response) => {
@@ -155,7 +155,7 @@ router.get('/held-sales', rbacMiddleware('pos.sales.view'), async (req: Request,
     if (scope === 'own' && req.user) where.heldBy = BigInt(req.user.userId);
     const held = await prisma.sale.findMany({ where, orderBy: { createdAt: 'desc' }, take: 50, include: { customer: { select: { fullName: true } }, items: true } });
     res.json({ data: held.map((s) => ({ id: s.id.toString(), saleNumber: s.saleNumber, customerName: s.customer?.fullName || 'Walk-in', total: Number(s.totalAmount), itemsCount: s.items.length, heldAt: s.heldAt?.toISOString() })) });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('POS held sales failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.post('/hold', rbacMiddleware('pos.sales.hold'), async (req: Request, res: Response) => {
@@ -212,7 +212,7 @@ router.get('/products-by-category', rbacMiddleware('pos.access'), async (req: Re
     if (req.query.category_id) where.categoryId = BigInt(req.query.category_id as string);
     const products = await prisma.product.findMany({ where, select: { id: true, name: true, sku: true, barcode: true, sellingPrice: true, categoryId: true, warehouseStock: { select: { quantity: true }, take: 1 } }, take: 200 });
     res.json({ data: products.map((p) => ({ id: Number(p.id), name: p.name, sku: p.sku, barcode: p.barcode, sellingPrice: Number(p.sellingPrice), categoryId: p.categoryId ? Number(p.categoryId) : null, stock: p.warehouseStock.reduce((s, ws) => s + ws.quantity, 0) })) });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('POS products by category failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.get('/daily-closing', rbacMiddleware('pos.sales.view'), async (req: Request, res: Response) => {
@@ -227,7 +227,7 @@ router.get('/daily-closing', rbacMiddleware('pos.sales.view'), async (req: Reque
     const paymentBreakdown: Record<string, number> = {};
     sales.forEach((s) => s.payments.forEach((p) => { paymentBreakdown[p.paymentMethod] = (paymentBreakdown[p.paymentMethod] || 0) + Number(p.amount); }));
     res.json({ data: { totalSales, transactionCount: sales.length, paymentBreakdown, averageOrder: sales.length > 0 ? totalSales / sales.length : 0 } });
-  } catch { res.json({ data: {} }); }
+  } catch (error: any) { logger.warn('POS daily closing failed', { error: error.message }); res.json({ data: {} }); }
 });
 
 // ---- RETURN ROUTES ----
@@ -258,7 +258,7 @@ router.get('/customer-purchases', rbacMiddleware('pos.sales.view'), async (req: 
       })),
       meta: { total, page, totalPages: Math.ceil(total / 5) },
     });
-  } catch { res.json({ data: [], meta: {} }); }
+  } catch (error: any) { logger.warn('POS customer purchases failed', { error: error.message }); res.json({ data: [], meta: {} }); }
 });
 
 router.get('/verify-purchase', rbacMiddleware('pos.sales.view'), async (req: Request, res: Response) => {
@@ -273,7 +273,7 @@ router.get('/verify-purchase', rbacMiddleware('pos.sales.view'), async (req: Req
     });
     if (!si) { res.json({ data: null }); return; }
     res.json({ data: { saleItemId: si.id.toString(), saleNumber: si.sale.saleNumber, saleDate: si.sale.saleDate.toISOString(), productName: si.product?.name || `Product`, quantity: si.quantity, unitPrice: Number(si.unitPrice) } });
-  } catch { res.json({ data: null }); }
+  } catch (error: any) { logger.warn('POS verify purchase failed', { error: error.message }); res.json({ data: null }); }
 });
 
 router.post('/process-return', rbacMiddleware('pos.returns.process'), async (req: Request, res: Response) => {
@@ -842,7 +842,7 @@ router.post('/print-receipt/:saleId', rbacMiddleware('pos.sales.create'), async 
     if (!sale) { res.status(404).json({ status: 404, detail: 'Sale not found' }); return; }
     const result = await printerService.printReceipt(ctx.tenantId, sale);
     res.json({ data: result });
-  } catch (error: any) { res.json({ data: { success: false, reason: error.message } }); }
+  } catch (error: any) { logger.warn('Print sale receipt failed', { error: error.message }); res.json({ data: { success: false, reason: error.message } }); }
 });
 
 router.post('/print-return-receipt/:returnId', rbacMiddleware('pos.sales.create'), async (req: Request, res: Response) => {
@@ -872,7 +872,7 @@ router.post('/print-return-receipt/:returnId', rbacMiddleware('pos.sales.create'
     const out = `RETURN RECEIPT\n==============\nReturn #: ${receiptData.returnNumber}\nSale: ${receiptData.saleNumber}\nCustomer: ${receiptData.customerName}\nItems: ${receiptData.items.length}\nTotal: ${receiptData.totalAmount}\nThank you!\n\n\n`;
     const result = await printerService.printReceipt(ctx.tenantId, { saleNumber: `RETURN-${receiptData.returnNumber}`, saleDate: new Date(), customer: { fullName: receiptData.customerName }, items: ret.items.map((i: any) => ({ product: { name: i.product?.name }, quantity: i.quantityReturned, unitPrice: i.unitPrice, lineTotal: Number(i.unitPrice) * i.quantityReturned, subtotal: Number(i.unitPrice) * i.quantityReturned })), payments: [], changeAmount: 0, totalAmount: Number(ret.totalAmount), createdByUser: null, discountAmount: 0, subtotal: Number(ret.totalAmount) });
     res.json({ data: result });
-  } catch (error: any) { res.json({ data: { success: false, reason: error.message } }); }
+  } catch (error: any) { logger.warn('Print return receipt failed', { error: error.message }); res.json({ data: { success: false, reason: error.message } }); }
 });
 
 router.post('/open-drawer', rbacMiddleware('pos.sales.create'), async (req: Request, res: Response) => {
@@ -880,7 +880,7 @@ router.post('/open-drawer', rbacMiddleware('pos.sales.create'), async (req: Requ
     const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
     const result = await printerService.openDrawer(ctx.tenantId);
     res.json({ data: result });
-  } catch (error: any) { res.json({ data: { success: false, reason: error.message } }); }
+  } catch (error: any) { logger.warn('POS open drawer failed', { error: error.message }); res.json({ data: { success: false, reason: error.message } }); }
 });
 
 export default router;

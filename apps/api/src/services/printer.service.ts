@@ -1,6 +1,7 @@
 import net from 'net';
 import { settingService } from './setting.service';
 import { formatPkr } from '../utils/helpers';
+import logger from '../utils/logger';
 
 const ESC = 0x1B, GS = 0x1D;
 
@@ -116,6 +117,7 @@ export class PrinterService {
       await this.sendToNetwork(settings.ip, settings.port, Buffer.from(buf));
       return { success: true };
     } catch (e: any) {
+      logger.warn('Network print failed', { error: e.message });
       return { success: false, reason: `Cannot connect to printer at ${settings.ip}:${settings.port} — ${e.message}` };
     }
   }
@@ -139,6 +141,7 @@ export class PrinterService {
       await this.sendToNetwork(settings.ip, settings.port, Buffer.from(buf));
       return { success: true };
     } catch (e: any) {
+      logger.warn('Test print failed', { error: e.message });
       return { success: false, reason: `Cannot connect to printer at ${settings.ip}:${settings.port}` };
     }
   }
@@ -156,6 +159,7 @@ export class PrinterService {
       }
       return { success: false, reason: 'Drawer requires a network printer connection' };
     } catch (e: any) {
+      logger.warn('Cash drawer open failed', { error: e.message });
       return { success: false, reason: `Cannot open drawer: ${e.message}` };
     }
   }
@@ -168,6 +172,7 @@ export class PrinterService {
         await this.sendToNetwork(settings.ip, settings.port, Buffer.from([ESC, 0x40]));
         return { printer: 'online', drawer: settings.drawerEnabled ? 'available' : 'not_configured' };
       } catch {
+        logger.warn('Printer status check failed');
         return { printer: 'offline', drawer: 'not_available' };
       }
     }

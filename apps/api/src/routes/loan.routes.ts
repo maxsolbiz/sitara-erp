@@ -24,7 +24,7 @@ router.get('/parties', rbacMiddleware('loans.view'), async (req: Request, res: R
     const ctx = getTenantContext(); if (!ctx) { res.json({ data: [] }); return; }
     const parties = await prisma.loanParty.findMany({ where: { tenantId: ctx.tenantId }, orderBy: { name: 'asc' }, include: { _count: { select: { loansGiven: true, loansTaken: true } } } });
     res.json({ data: parties.map((p) => ({ id: p.id.toString(), name: p.name, phone: p.phone, email: p.email, type: p.type, cnic: p.cnic, isActive: p.isActive, loansGivenCount: p._count.loansGiven, loansTakenCount: p._count.loansTaken })) });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Loan parties failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.post('/parties', rbacMiddleware('loans.manage'), async (req: Request, res: Response) => {
@@ -48,7 +48,7 @@ router.get('/stats', rbacMiddleware('loans.view'), async (req: Request, res: Res
       else { totalTaken += Number(l.principalAmount); totalPayable += Number(l.remainingAmount); }
     }
     res.json({ data: { totalGiven, totalTaken, totalReceivable, totalPayable } });
-  } catch { res.json({ data: {} }); }
+  } catch (error: any) { logger.warn('Loan stats failed', { error: error.message }); res.json({ data: {} }); }
 });
 
 router.get('/', rbacMiddleware('loans.view'), async (req: Request, res: Response) => {
@@ -60,7 +60,7 @@ router.get('/', rbacMiddleware('loans.view'), async (req: Request, res: Response
     if (req.query.partyId) { where.OR = [{ borrowerId: BigInt(req.query.partyId as string) }, { lenderId: BigInt(req.query.partyId as string) }]; }
     const loans = await prisma.loan.findMany({ where, orderBy: { createdAt: 'desc' }, take: 50, include: { borrower: { select: { name: true } }, lender: { select: { name: true } } } });
     res.json({ data: loans.map((l) => ({ id: l.id.toString(), loanNumber: l.loanNumber, type: l.type, partyName: l.borrower?.name || l.lender?.name || '', principalAmount: Number(l.principalAmount), interestRate: Number(l.interestRate), startDate: l.startDate, dueDate: l.dueDate, status: l.status, totalPaid: Number(l.totalPaid), remainingAmount: Number(l.remainingAmount) })) });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Loans list failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.get('/:id', rbacMiddleware('loans.view'), async (req: Request, res: Response) => {

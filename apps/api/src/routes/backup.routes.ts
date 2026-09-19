@@ -114,7 +114,7 @@ router.get('/settings/config', rbacMiddleware('settings.view'), async (req: Requ
     const config: Record<string, string> = {};
     settings.forEach((s: any) => { config[s.key] = JSON.stringify(s.value).replace(/"/g, ''); });
     res.json({ success: true, data: config });
-  } catch { res.json({ success: true, data: {} }); }
+  } catch (error: any) { logger.error('Backup config load failed', { error: error.message }); res.status(500).json({ success: false, error: 'Failed to load backup config' }); }
 });
 
 router.put('/settings/config', rbacMiddleware('settings.backup'), async (req: Request, res: Response) => {

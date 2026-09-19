@@ -28,7 +28,7 @@ router.get('/', rbacMiddleware('users.view'), async (req: Request, res: Response
       select: { id: true, username: true, email: true, fullName: true, isActive: true, isSuperAdmin: true, status: true, lastLogin: true, createdAt: true, roleAssignments: { include: { role: { select: { id: true, name: true, slug: true } } } } },
     });
     res.json({ data: users.map((u) => ({ id: u.id.toString(), username: u.username, email: u.email, fullName: u.fullName, isActive: u.isActive, isSuperAdmin: u.isSuperAdmin, status: u.status, lastLogin: u.lastLogin, createdAt: u.createdAt, roleAssignments: u.roleAssignments.map((ra: any) => ({ id: ra.role.id.toString(), name: ra.role.name, slug: ra.role.slug })) })) });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Users list failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 // GET /users/:id — user detail with roles

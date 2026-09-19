@@ -278,7 +278,7 @@ router.get('/sessions', authMiddleware, async (req: Request, res: Response) => {
     const userId = BigInt(req.user!.userId);
     const sessions = await prisma.userSession.findMany({ where: { userId, isActive: true }, orderBy: { lastActivity: 'desc' }, take: 50 });
     res.json({ data: sessions.map((s) => ({ id: s.id.toString(), ipAddress: s.ipAddress, userAgent: s.userAgent, startedAt: s.startedAt, lastActivity: s.lastActivity })) });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Sessions list failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.delete('/sessions/:id', authMiddleware, async (req: Request, res: Response) => {

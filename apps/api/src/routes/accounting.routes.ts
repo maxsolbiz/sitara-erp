@@ -28,12 +28,12 @@ router.get('/', rbacMiddleware('accounting.view'), async (_req: Request, res: Re
       accountingService.getJournalEntries(1, 10),
     ]);
     res.json({ data: { accountsCount: accounts.length, entriesCount: entries.total, recentEntries: entries.items } });
-  } catch { res.json({ data: { accountsCount: 0, entriesCount: 0, recentEntries: [] } }); }
+  } catch (error: any) { logger.warn('Accounting overview failed', { error: error.message }); res.json({ data: { accountsCount: 0, entriesCount: 0, recentEntries: [] } }); }
 });
 
 router.get('/chart-of-accounts', rbacMiddleware('accounting.view'), async (_req: Request, res: Response) => {
   try { const accounts = await accountingService.getChartOfAccounts(); res.json({ data: accounts }); }
-  catch { res.json({ data: [] }); }
+  catch (error: any) { logger.warn('Chart of accounts failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.post('/chart-of-accounts', rbacMiddleware('accounting.accounts.manage'), async (req: Request, res: Response) => {
@@ -43,7 +43,7 @@ router.post('/chart-of-accounts', rbacMiddleware('accounting.accounts.manage'), 
 
 router.get('/journal-entries', rbacMiddleware('accounting.view'), async (req: Request, res: Response) => {
   try { const r = await accountingService.getJournalEntries(req.query.page ? Number(req.query.page) : 1); res.json({ data: r.items, meta: { total: r.total } }); }
-  catch { res.json({ data: [] }); }
+  catch (error: any) { logger.warn('Journal entries list failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.post('/journal-entries', rbacMiddleware('accounting.journals.create'), async (req: Request, res: Response) => {

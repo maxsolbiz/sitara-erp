@@ -30,7 +30,7 @@ router.get('/roles', rbacMiddleware('rbac.manage'), async (_req: Request, res: R
       include: { _count: { select: { permissions: true, users: true } }, permissions: { include: { permission: { select: { slug: true, module: true } } } } },
     });
     res.json({ data: roles.map((r) => ({ id: r.id.toString(), name: r.name, slug: r.slug, description: r.description, isSystem: r.isSystem, userCount: r._count.users, permissionCount: r._count.permissions, permissions: r.permissions.map((p) => ({ slug: p.permission.slug, module: p.permission.module })) })) });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Roles list failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 // GET /roles/:id — role detail
@@ -174,7 +174,7 @@ router.get('/permissions', rbacMiddleware('rbac.manage'), async (_req: Request, 
       grouped[mod].push({ id: p.id.toString(), slug: p.slug, name: p.name });
     }
     res.json({ data: grouped });
-  } catch { res.json({ data: {} }); }
+  } catch (error: any) { logger.warn('Permissions list failed', { error: error.message }); res.json({ data: {} }); }
 });
 
 // POST /roles/:id/users/:userId — assign role to user

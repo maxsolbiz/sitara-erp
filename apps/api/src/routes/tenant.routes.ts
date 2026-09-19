@@ -36,7 +36,7 @@ router.get('/usage', async (req: Request, res: Response) => {
       prisma.sale.count({ where: { tenantId } }),
     ]);
     res.json({ data: { users, products, sales, storage: 'N/A', apiCalls: 0 } });
-  } catch { res.json({ data: { users: 0, products: 0, sales: 0, storage: 'N/A', apiCalls: 0 } }); }
+  } catch (error: any) { logger.warn('Tenant usage failed', { error: error.message }); res.json({ data: { users: 0, products: 0, sales: 0, storage: 'N/A', apiCalls: 0 } }); }
 });
 
 export default router;

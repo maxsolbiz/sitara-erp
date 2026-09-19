@@ -30,7 +30,7 @@ router.get('/', rbacMiddleware('accounting.view'), async (_req: Request, res: Re
     const ctx = getTenantContext(); if (!guard(ctx, res)) return;
     const fys = await prisma.financialYear.findMany({ where: { tenantId: ctx!.tenantId }, orderBy: { startDate: 'desc' } });
     res.json({ data: fys.map(mapFY) });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Financial years list failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 // Get active FY
@@ -39,7 +39,7 @@ router.get('/active', rbacMiddleware('accounting.view'), async (_req: Request, r
     const ctx = getTenantContext(); if (!guard(ctx, res)) return;
     const fy = await prisma.financialYear.findFirst({ where: { tenantId: ctx!.tenantId, status: 'OPEN' }, orderBy: { startDate: 'desc' } });
     res.json({ data: fy ? mapFY(fy) : null });
-  } catch { res.json({ data: null }); }
+  } catch (error: any) { logger.warn('Active financial year failed', { error: error.message }); res.json({ data: null }); }
 });
 
 // Get FY detail with stats

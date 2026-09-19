@@ -21,7 +21,7 @@ router.param('id', (req, res, next, val) => {
 
 router.get('/stats', rbacMiddleware('vendors.view'), async (_req: Request, res: Response) => {
   try { const s = await vendorService.getStats(); res.json({ data: s }); }
-  catch { res.json({ data: { total: 0, active: 0, totalPayable: 0, withBalance: 0 } }); }
+  catch (error: any) { logger.warn('Vendor stats failed', { error: error.message }); res.json({ data: { total: 0, active: 0, totalPayable: 0, withBalance: 0 } }); }
 });
 
 router.get('/', rbacMiddleware('vendors.view'), async (req: Request, res: Response) => {
@@ -33,7 +33,7 @@ router.get('/', rbacMiddleware('vendors.view'), async (req: Request, res: Respon
 
 router.get('/search', rbacMiddleware('vendors.view'), async (req: Request, res: Response) => {
   try { const r = await vendorService.list({ search: req.query.q as string, perPage: 20 }); res.json({ data: r.items }); }
-  catch { res.json({ data: [] }); }
+  catch (error: any) { logger.warn('Vendor search failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.get('/export/csv', rbacMiddleware('vendors.view'), async (req: Request, res: Response) => {
@@ -90,7 +90,7 @@ router.get('/:id/payments', rbacMiddleware('vendors.view'), async (req: Request,
       prisma.vendorPayment.count({ where: { tenantId: ctx.tenantId, vendorId: BigInt(req.params.id) } }),
     ]);
     res.json({ data: items.map((p) => ({ id: p.id.toString(), paymentDate: p.paymentDate, amount: Number(p.amount), paymentMethod: p.paymentMethod, referenceNumber: p.referenceNumber, notes: p.notes, createdAt: p.createdAt })), meta: { total, page } });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Vendor payments failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.post('/:id/payments', rbacMiddleware('vendors.payments'), async (req: Request, res: Response) => {
@@ -158,7 +158,7 @@ router.get('/:id/ledger', rbacMiddleware('vendors.view'), async (req: Request, r
       prisma.vendorLedger.count({ where: { tenantId: ctx.tenantId, vendorId: BigInt(req.params.id) } }),
     ]);
     res.json({ data: items.map((e) => ({ id: e.id.toString(), type: e.type, amount: Number(e.amount), balanceBefore: Number(e.balanceBefore), balanceAfter: Number(e.balanceAfter), referenceId: e.referenceId?.toString() || null, referenceType: e.referenceType, notes: e.notes, createdAt: e.createdAt })), meta: { total, page } });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Vendor ledger list failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 // ---- Vendor Statement ----
@@ -189,7 +189,7 @@ router.get('/:id/activity', rbacMiddleware('vendors.view'), async (req: Request,
       prisma.vendorActivityLog.count({ where: { tenantId: ctx.tenantId, vendorId: BigInt(req.params.id) } }),
     ]);
     res.json({ data: items.map((e) => ({ id: e.id.toString(), action: e.action, description: e.description, createdBy: e.createdBy?.toString(), createdAt: e.createdAt })), meta: { total, page } });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Vendor activity failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 export default router;

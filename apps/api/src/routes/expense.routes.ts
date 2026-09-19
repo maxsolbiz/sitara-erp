@@ -30,7 +30,7 @@ router.get('/categories', rbacMiddleware('expenses.view'), async (_req: Request,
       include: { _count: { select: { expenses: true } } },
     });
     res.json({ data: items.map((c) => ({ id: c.id.toString(), name: c.name, description: c.description, isActive: c.isActive, isRecurring: c.isRecurring, expenseCount: c._count.expenses })) });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Expense categories failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.post('/categories', rbacMiddleware('expenses.categories.manage'), async (req: Request, res: Response) => {
@@ -81,7 +81,7 @@ router.get('/stats', rbacMiddleware('expenses.view'), async (_req: Request, res:
       else if (r.status === 'PAID') stats.totalPaid += a;
     }
     res.json({ data: stats });
-  } catch { res.json({ data: {} }); }
+  } catch (error: any) { logger.warn('Expense stats failed', { error: error.message }); res.json({ data: {} }); }
 });
 
 router.get('/', rbacMiddleware('expenses.view'), async (_req: Request, res: Response) => {
@@ -94,7 +94,7 @@ router.get('/', rbacMiddleware('expenses.view'), async (_req: Request, res: Resp
       include: { category: { select: { name: true } } },
     });
     res.json({ data: items.map((e) => ({ id: e.id.toString(), expenseNumber: e.expenseNumber, categoryId: e.categoryId.toString(), categoryName: e.category?.name, amount: Number(e.amount), description: e.description, expenseDate: e.expenseDate, status: e.status, vendorName: e.vendorName, createdAt: e.createdAt })) });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Expenses list failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.post('/', rbacMiddleware('expenses.create'), async (req: Request, res: Response) => {

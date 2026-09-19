@@ -52,6 +52,7 @@ router.get('/stats', rbacMiddleware('customers.view'), async (_req: Request, res
     const stats = await customerService.getStats();
     res.json({ data: stats });
   } catch (error: any) {
+    logger.warn('Customer stats failed', { error: error.message });
     res.json({ data: { total: 0, active: 0, totalReceivable: 0, withBalance: 0 } });
   }
 });
@@ -77,7 +78,7 @@ router.get('/search', rbacMiddleware('customers.view'), async (req: Request, res
   try {
     const result = await customerService.list({ search: req.query.q as string, perPage: 20 });
     res.json({ data: result.items });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Customer search failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 // ---- Export, Receipts & Reports (must be before /:id to avoid routing conflicts) ----
@@ -510,7 +511,7 @@ router.get('/:id/activity', rbacMiddleware('customers.view'), async (req: Reques
       prisma.customerActivityLog.count({ where: { tenantId: ctx.tenantId, customerId: BigInt(req.params.id) } }),
     ]);
     res.json({ data: items.map((e) => ({ id: e.id.toString(), action: e.action, description: e.description, createdBy: e.createdBy?.toString(), createdAt: e.createdAt })), meta: { total, page } });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Customer activity failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 export default router;

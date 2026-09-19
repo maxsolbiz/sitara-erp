@@ -25,6 +25,7 @@ export async function lookupIP(ip: string): Promise<GeoResult | null> {
     try {
       const r = mmReader.get(ip);
       if (r) result = { country: r.country?.names?.en, city: r.city?.names?.en, region: r.subdivisions?.[0]?.names?.en, lat: r.location?.latitude, lon: r.location?.longitude, timezone: r.location?.time_zone };
+    // Intentional: geo is auxiliary metadata — serve the request without location data on lookup failure.
     } catch {}
   }
   if (!result) {
@@ -33,6 +34,7 @@ export async function lookupIP(ip: string): Promise<GeoResult | null> {
       const { data } = await axios.get(`https://ipinfo.io/${ip}/json${token ? `?token=${token}` : ''}`, { timeout: 3000 });
       const [lat, lon] = (data.loc || ',').split(',');
       result = { country: data.country, city: data.city, region: data.region, timezone: data.timezone, lat: parseFloat(lat), lon: parseFloat(lon) };
+    // Intentional: IPinfo fallback is best-effort — a failed lookup must not fail the request.
     } catch {}
   }
   geoCache.set(ip, { result, expiresAt: Date.now() + CACHE_TTL });

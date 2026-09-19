@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { getTenantContext } from '../lib/prisma';
 import { rbacMiddleware } from '../middleware/rbac';
+import logger from '../utils/logger';
 
 const router = Router();
 
@@ -56,7 +57,8 @@ router.get('/', rbacMiddleware('reports.view'), async (req: Request, res: Respon
     for (const e of expenses) data.push({ type: 'expense', id: e.id.toString(), title: e.description, subtitle: e.expenseNumber || '', link: `/expenses`, meta: `PKR ${Number(e.amount).toLocaleString()}` });
 
     res.json({ data: data.slice(0, limit * 3), query: q, total: data.length });
-  } catch {
+  } catch (error: any) {
+    logger.warn('Global search failed', { error: error.message });
     res.json({ data: [], query: '', total: 0 });
   }
 });

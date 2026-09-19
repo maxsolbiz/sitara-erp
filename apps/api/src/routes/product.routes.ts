@@ -56,6 +56,7 @@ async function canViewCost(req: Request): Promise<boolean> {
       ru.role.permissions.some((rp) => rp.permission.slug === 'products.export')
     );
   } catch {
+    // Intentional: fail-closed permission default — deny export on any lookup error.
     return false;
   }
 }
@@ -115,6 +116,7 @@ router.get('/search', rbacMiddleware('products.view'), async (req: Request, res:
     }
     res.json({ data: items });
   } catch (error: any) {
+    logger.warn('Product search failed', { error: error.message });
     res.json({ data: [] });
   }
 });
@@ -262,7 +264,7 @@ router.get('/import/history', rbacMiddleware('products.import'), async (req: Req
       take: 20,
     });
     res.json({ data: items.map((h: any) => ({ id: h.id.toString(), filename: h.filename, totalRows: h.totalRows, imported: h.imported, skipped: h.skipped, errors: h.errors, status: h.status, createdAt: h.createdAt })) });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Product import history failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 // ---- Product Bundles ----
@@ -271,7 +273,7 @@ router.get('/bundles', rbacMiddleware('products.view'), async (req: Request, res
     const ctx = getTenantContext(); if (!ctx) { res.json({ data: [] }); return; }
     const bundles = await prisma.productBundle.findMany({ where: { tenantId: ctx.tenantId, deletedAt: null }, orderBy: { createdAt: 'desc' }, include: { items: { include: { product: { select: { name: true, sellingPrice: true } } } } } });
     res.json({ data: bundles.map((b) => ({ id: b.id.toString(), name: b.name, sku: b.sku, sellingPrice: Number(b.sellingPrice), isActive: b.isActive, itemCount: b.items.length, items: b.items.map((i) => ({ id: i.id.toString(), productId: i.productId.toString(), productName: i.product?.name, quantity: i.quantity })) })) });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Product bundles failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.post('/bundles', rbacMiddleware('products.create'), async (req: Request, res: Response) => {
@@ -341,7 +343,7 @@ router.get('/attributes', rbacMiddleware('products.view'), async (req: Request, 
     const ctx = getTenantContext(); if (!ctx) { res.json({ data: [] }); return; }
     const attrs = await prisma.productAttribute.findMany({ where: { tenantId: ctx.tenantId }, orderBy: { name: 'asc' } });
     res.json({ data: attrs.map((a) => ({ id: a.id.toString(), name: a.name, values: a.values, isActive: a.isActive })) });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Product attributes failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.post('/attributes', rbacMiddleware('products.create'), async (req: Request, res: Response) => {
@@ -386,7 +388,7 @@ router.get('/:id/variants', rbacMiddleware('products.view'), async (req: Request
     });
     const showCost = await canViewCost(req);
     res.json({ data: variants.map((v) => ({ id: v.id.toString(), productId: v.productId.toString(), sku: v.sku, name: v.name, barcode: v.barcode, ...(showCost ? { costPrice: Number(v.costPrice) } : {}), sellingPrice: Number(v.sellingPrice), isActive: v.isActive })) });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Product variants failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.post('/:id/variants', rbacMiddleware('products.create'), async (req: Request, res: Response) => {
@@ -439,7 +441,7 @@ router.get('/:id/images', rbacMiddleware('products.view'), async (req: Request, 
       orderBy: { sortOrder: 'asc' },
     });
     res.json({ data: images.map((img) => ({ id: img.id.toString(), productId: img.productId.toString(), imagePath: img.imagePath, isPrimary: img.isPrimary, sortOrder: img.sortOrder, createdAt: img.createdAt })) });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Product images failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.post('/:id/images', rbacMiddleware('products.update'), captureTenant, upload.single('image'), async (req: Request, res: Response) => {

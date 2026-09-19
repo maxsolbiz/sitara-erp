@@ -30,7 +30,7 @@ router.get('/', rbacMiddleware('notifications.view'), async (req: Request, res: 
     if (unread) where.isRead = false;
     const notifs = await prisma.notification.findMany({ where, orderBy: { createdAt: 'desc' }, take: 50 });
     res.json({ data: notifs.map((n) => ({ id: n.id.toString(), title: n.title, message: n.message, type: n.type, isRead: n.isRead, data: n.data, createdAt: n.createdAt })) });
-  } catch { res.json({ data: [] }); }
+  } catch (error: any) { logger.warn('Notifications list failed', { error: error.message }); res.json({ data: [] }); }
 });
 
 router.get('/unread-count', rbacMiddleware('notifications.view'), async (req: Request, res: Response) => {
@@ -39,7 +39,7 @@ router.get('/unread-count', rbacMiddleware('notifications.view'), async (req: Re
     const userId = req.user ? BigInt(req.user.userId) : BigInt(0);
     const count = await prisma.notification.count({ where: { tenantId: ctx.tenantId, userId, isRead: false } });
     res.json({ data: { count } });
-  } catch { res.json({ data: { count: 0 } }); }
+  } catch (error: any) { logger.warn('Unread count failed', { error: error.message }); res.json({ data: { count: 0 } }); }
 });
 
 router.patch('/:id/read', rbacMiddleware('notifications.view'), async (req: Request, res: Response) => {
