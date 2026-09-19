@@ -268,6 +268,27 @@ export function buildRestoreOrder(): { deleteOrder: string[]; insertOrder: strin
   return { deleteOrder, insertOrder: [...deleteOrder].reverse() };
 }
 
+/**
+ * Delete-side twin of resolveTenantScope: models without their own
+ * tenantId column cannot take `{ tenantId }` in a where clause at all
+ * (Prisma throws "unknown argument"). They delete via their tenant-
+ * owning parent relation instead. Same four junction models, same
+ * parent anchors — kept adjacent so they can't drift apart.
+ */
+function resolveDeleteScope(model: string, tenantId: bigint): Record<string, unknown> {
+  switch (model) {
+    case 'rolePermission':
+      return { role: { tenantId } };
+    case 'roleUser':
+      return { user: { tenantId } };
+    case 'productBundleItem':
+      return { bundle: { tenantId } };
+    case 'stockTransferItem':
+      return { transfer: { tenantId } };
+    default:
+      return { tenantId };
+  }
+}
 function payloadHasTenantField(model: string): boolean {
   const m = dmmfModels().find(
     (x) => x.name.charAt(0).toLowerCase() + x.name.slice(1) === model
@@ -360,7 +381,10 @@ export async function executeRestore(options: { backupId: number; confirmToken: 
         // Self-lockout guard: never delete the executing admin's own row.
         await db(model).deleteMany({ where: { tenantId, NOT: { id: restoredBy } } });
       } else {
-        await db(model).deleteMany({ where: { tenantId } });
+        // Junction models resolve via their tenant-owning parent —
+        // a bare { tenantId } throws "unknown argument" on tables
+        // without the column (caught live by the restore matrix).
+        await db(model).deleteMany({ where: resolveDeleteScope(model, tenantId) });
       }
     }
     for (const model of insertOrder) {
