@@ -22,21 +22,21 @@ export default function SettingsUsersPage() {
   const [editing, setEditing] = useState<any>(null);
   const [passwordTarget, setPasswordTarget] = useState<any>(null);
   const [newPassword, setNewPassword] = useState('');
-  const [form, setForm] = useState({ username: '', email: '', password: '', fullName: '', roleId: '' });
+  const [form, setForm] = useState({ username: '', email: '', password: '', fullName: '', roleIds: [] as string[] });
   const [saving, setSaving] = useState(false);
 
   const load = async () => {
     setLoading(true);
     const [uRes, rRes] = await Promise.all([apiGet('/users').catch(() => null), apiGet('/rbac/roles').catch(() => null)]);
     if (uRes?.data) setUsers(uRes.data);
-    if (rRes?.data) setRoles(rRes.data.filter((r: any) => r.slug !== 'admin'));
+    if (rRes?.data) setRoles(rRes.data);
     setLoading(false);
   };
 
   useEffect(() => { load(); }, []);
 
-  const openCreate = () => { setEditing(null); setForm({ username: '', email: '', password: '', fullName: '', roleId: '' }); setShowModal(true); };
-  const openEdit = (u: any) => { setEditing(u); setForm({ username: u.username, email: u.email, password: '', fullName: u.fullName, roleId: u.roleAssignments?.[0]?.id || '' }); setShowModal(true); };
+  const openCreate = () => { setEditing(null); setForm({ username: '', email: '', password: '', fullName: '', roleIds: [] as string[] }); setShowModal(true); };
+  const openEdit = (u: any) => { setEditing(u); setForm({ username: u.username, email: u.email, password: '', fullName: u.fullName, roleIds: (u.roleAssignments || []).map((r: any) => String(r.id)) }); setShowModal(true); };
 
   const handleSave = async () => {
     if (!form.fullName || !form.email) { toast.error('Name and email required'); return; }
@@ -45,11 +45,11 @@ export default function SettingsUsersPage() {
       if (editing) {
         const res = await apiPut(`/users/${editing.id}`, { fullName: form.fullName, email: form.email }) as any;
         if (res.error) { toast.error(res.error.detail); return; }
-        if (form.roleId) await apiPatch(`/users/${editing.id}/roles`, { roleIds: [form.roleId] });
+        await apiPatch(`/users/${editing.id}/roles`, { roleIds: form.roleIds });
         toast.success('User updated');
       } else {
         if (!form.password || !form.username) { toast.error('Username and password required'); return; }
-        const res = await apiPost('/users', { ...form, roleId: form.roleId || undefined }) as any;
+        const res = await apiPost('/users', { ...form, roleIds: form.roleIds }) as any;
         if (res.error) { toast.error(res.error.detail); return; }
         toast.success('User created');
       }
@@ -141,11 +141,16 @@ export default function SettingsUsersPage() {
           <div className="space-y-1"><Label>Full Name *</Label><Input value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} /></div>
           <div className="space-y-1"><Label>Email *</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
           {!editing && <div className="space-y-1"><Label>Password *</Label><Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></div>}
-          <div className="space-y-1"><Label>Role</Label>
-            <select className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm" value={form.roleId} onChange={(e) => setForm({ ...form, roleId: e.target.value })}>
-              <option value="">No role</option>
-              {roles.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
+          <div className="space-y-1"><Label>Roles</Label>
+            {roles.map((r: any) => (
+              <label key={r.id} className="flex items-center gap-2 text-sm">
+                <input type="checkbox" className="h-4 w-4"
+                  checked={form.roleIds.includes(String(r.id))}
+                  disabled={r.slug === 'admin' && !!editing && isLastAdmin(editing) && form.roleIds.includes(String(r.id))}
+                  onChange={() => setForm({ ...form, roleIds: form.roleIds.includes(String(r.id)) ? form.roleIds.filter((id: string) => id !== String(r.id)) : [...form.roleIds, String(r.id)] })} />
+                {r.name}
+              </label>
+            ))}
           </div>
           <Button className="w-full" onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : editing ? 'Update User' : 'Create User'}</Button>
         </div>

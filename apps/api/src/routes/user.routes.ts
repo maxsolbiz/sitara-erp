@@ -48,7 +48,7 @@ router.get('/:id', rbacMiddleware('users.view'), async (req: Request, res: Respo
 router.post('/', rbacMiddleware('users.manage'), async (req: Request, res: Response) => {
   try {
     const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
-    const { username, email, password, fullName, roleId } = req.body;
+    const { username, email, password, fullName, roleId, roleIds } = req.body;
     if (!username || !email || !password || !fullName) { res.status(400).json({ status: 400, detail: 'Username, email, password, and fullName required' }); return; }
     const existing = await prisma.user.findFirst({ where: { OR: [{ username }, { email }], tenantId: ctx.tenantId } });
     if (existing) { res.status(409).json({ status: 409, detail: 'Username or email already exists' }); return; }
@@ -57,17 +57,20 @@ router.post('/', rbacMiddleware('users.manage'), async (req: Request, res: Respo
       data: { tenantId: ctx.tenantId, username, email, passwordHash, fullName, isActive: true, status: 'active' },
     });
     logger.info('User created', { userId: user.id.toString(), tenantId: ctx.tenantId.toString() });
-    let roleName: string | undefined;
-    if (roleId) {
-      const roleCheck = await prisma.role.findFirst({ where: { id: BigInt(roleId), tenantId: ctx.tenantId }, select: { id: true } });
+    // roleIds array preferred (multi-role); single roleId kept for backward compat.
+    const roleIdList: string[] = Array.isArray(roleIds) ? roleIds : roleId ? [roleId] : [];
+    const roleNames: string[] = [];
+    for (const rid of roleIdList) {
+      const roleCheck = await prisma.role.findFirst({ where: { id: BigInt(rid), tenantId: ctx.tenantId }, select: { id: true, name: true } });
       if (!roleCheck) { res.status(400).json({ status: 400, detail: 'Role not found' }); return; }
       await prisma.roleUser.upsert({
-        where: { userId_roleId: { userId: user.id, roleId: BigInt(roleId) } },
-        create: { userId: user.id, roleId: BigInt(roleId) },
+        where: { userId_roleId: { userId: user.id, roleId: BigInt(rid) } },
+        create: { userId: user.id, roleId: BigInt(rid) },
         update: {},
       });
-      roleName = (await prisma.role.findFirst({ where: { id: BigInt(roleId), tenantId: ctx.tenantId }, select: { name: true } }))?.name;
+      if (roleCheck.name) roleNames.push(roleCheck.name);
     }
+    const roleName = roleNames.length > 0 ? roleNames.join(', ') : undefined;
     void logActivity({
       tenantId: ctx.tenantId, userId: req.user ? BigInt(req.user.userId) : undefined,
       action: 'USER_CREATE', entityType: 'user', entityId: user.id,

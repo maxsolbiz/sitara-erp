@@ -3,6 +3,7 @@ import { z } from 'zod';
 import prisma from '../lib/prisma';
 import { getTenantContext } from '../lib/prisma';
 import { rbacMiddleware } from '../middleware/rbac';
+import { authRateLimitMiddleware } from '../middleware/rateLimit';
 import { validateMiddleware } from '../middleware/validate';
 import { generateSaleNumber, formatPkr, verifyPassword, parseIdParam, requireAuthUserId } from '../utils/helpers';
 import { getDefaultWarehouse } from '../utils/warehouse';
@@ -370,7 +371,7 @@ router.post('/process-return', rbacMiddleware('pos.returns.process'), async (req
 });
 
 // ---- MANAGER OVERRIDE ----
-router.post('/validate-manager', async (req: Request, res: Response) => {
+router.post('/validate-manager', authRateLimitMiddleware(), async (req: Request, res: Response) => {
   try {
     const ctx = getTenantContext();
     if (!ctx) { res.status(401).json({ status: 401, detail: 'No tenant context' }); return; }
@@ -382,13 +383,17 @@ router.post('/validate-manager', async (req: Request, res: Response) => {
     });
     if (!user) { res.status(401).json({ status: 401, detail: 'Invalid credentials' }); return; }
     const valid = await verifyPassword(password, user.passwordHash);
-    if (!valid) { res.status(401).json({ status: 401, detail: 'Invalid credentials' }); return; }
+    if (!valid) {
+      await prisma.user.updateMany({ where: { id: user.id }, data: { loginAttempts: { increment: 1 } } });
+      res.status(401).json({ status: 401, detail: 'Invalid credentials' }); return;
+    }
     // Role check — only manager, admin, owner, or super admin can override
     const managerRoles = ['manager', 'admin', 'owner', 'administrator'];
     const userRoles = user.roleAssignments.map((ra: any) => ra.role.name.toLowerCase());
     const hasManagerRole = user.isSuperAdmin || userRoles.some((r: string) => managerRoles.includes(r));
     if (!hasManagerRole) {
-      res.status(403).json({ status: 403, detail: 'User does not have manager privileges' }); return;
+      // Same 401 shape as bad credentials: a distinct 403 would confirm a guessed password is correct.
+      res.status(401).json({ status: 401, detail: 'Invalid credentials' }); return;
     }
     res.json({ data: { userId: user.id.toString(), fullName: user.fullName, verified: true } });
   } catch (error: any) { logger.error('Manager validation failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
