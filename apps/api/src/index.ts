@@ -26,6 +26,7 @@ import { authMiddleware } from './middleware/auth';
 import { tenantMiddleware } from './middleware/tenant';
 import { registerRoutes } from './routes';
 import { runWithTenantContext } from './lib/prisma';
+import { TENANT_SLUG_PATTERN } from './constants/tenant';
 import { initGeoIP } from './services/geoip.service';
 import { startCurrencySync } from './services/currency.service';
 
@@ -52,12 +53,27 @@ app.use(helmet({ contentSecurityPolicy: false }));
 // allowlist ([/\.sitara\.pk$/, /^https:\/\/app\.sitara\./]) was removable:
 // sitara.pk is not org-controlled, and the app.sitara. prefix was anchored
 // at the start only, matching attacker subdomains like app.sitara.evil.com.
-const allowedOrigins = [
-  'https://app.sitarapurse.com',
-  'https://api.sitarapurse.com',
-];
+// Registered-domain suffix for validated origin reflection. The leading dot
+// is load-bearing: 'evil-sitarapurse.com' and 'sitarapurse.com.evil.com'
+// both fail the endsWith check. Label must additionally satisfy the same
+// LDH pattern as tenant slugs (rejects nested 'a.b' labels too).
+const SITARA_ORIGIN_SUFFIX = '.sitarapurse.com';
+function isAllowedOrigin(origin: string | undefined): boolean {
+  if (!origin) return true; // no Origin header: curl, server-to-server, same-origin
+  let hostname: string;
+  try {
+    const url = new URL(origin);
+    if (url.protocol !== 'https:') return false;
+    hostname = url.hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  if (!hostname.endsWith(SITARA_ORIGIN_SUFFIX)) return false;
+  const label = hostname.slice(0, -SITARA_ORIGIN_SUFFIX.length);
+  return label.length > 0 && TENANT_SLUG_PATTERN.test(label);
+}
 app.use(cors({
-  origin: config.nodeEnv === 'development' ? '*' : allowedOrigins,
+  origin: config.nodeEnv === 'development' ? '*' : (origin, callback) => callback(null, isAllowedOrigin(origin)),
   credentials: true,
 }));
 app.use(compression());

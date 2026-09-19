@@ -64,8 +64,19 @@ D:\SasS/
 
 ## Current Session State
 
-### Last Session Date: 2026-06-23
-### Modules Built This Session:
+### Last Session Date: 2026-09-19
+### C-A2b restore matrix: COMPLETE (all 10 tests + 2 gap tests PASS, prod clean)
+- Commit `bd6845c` (tenant-scoped transactional restore) + `32f15fb` (junction deletes via parent scope) deployed; health `ok`
+- T1 happy-path, T2 adversarial child-first order, T3 self-lockout+login, T4 sequence health, T5 mid-restore fail-loud + byte-identical rollback, T6 no-swallow grep, T7/T8 pre-flight gates, T9 record-scope + payload `Backup tenant mismatch`, T10 auto-snapshot discoverable
+- Prod verified clean: `backup_records=0`, no `p2rst` tenants/users, `/storage/backups/` empty, tenant 1 untouched, PM2 all online
+- Test-harness lessons: use `sql1()` sanitizer (` | grep -E '^[0-9]+$'`) for INSERT...RETURNING captures (psql prints `INSERT 0 1` tag); service API is `authService.registerTenant(name,slug,email,pass,adminName)` positional + free fns `createBackup/requestRestoreToken/executeRestore`; pass IDs via `process.argv` with fully-quoted heredocs; wrap every `npx tsx` in `timeout 150`
+- Unexplained single `t3login` tsx hang (epoll, 17 min, killed); login path verified functional before/after — treated as transient, timeout guards now standard
+- Redis scare resolved: `-u` URL-parse quirk only; `-a` PONG ok, 0 app connection errors — no outage, no rotation issue
+- Process lesson: hotfix was committed before diff review — standing rule is diff-before-COMMIT, not just diff-before-deploy; tighten on next hotfix
+- `ca2b-matrix.sh` T5 uses `tail -n 4` which truncates Prisma multi-line errors before the `T5ERR=` marker (false FAIL; re-proven via Gap B) — fix truncation before trusting a clean run if restore code is touched again
+- Backup payload shape: `payload.data[modelName] = Array` (dict keyed by model, NOT a list of `{model, rows}`)
+
+### Modules Built (prior sessions):
 - POS checkout: FIFO batch consumption, balanced journal entries, dynamic warehouse lookup
 - Sales returns: embedded returns now visible in menu, `EMBEDDED`/`STANDALONE` type badges
 - Fixed ~112 hardcoded values (P0 items: createdBy, warehouseId, account codes)
