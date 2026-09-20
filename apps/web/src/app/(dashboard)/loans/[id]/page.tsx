@@ -1,9 +1,10 @@
 'use client'; import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation'; import { apiGet, apiPost } from '@/lib/api';
+import { useParams, useRouter } from 'next/navigation'; import { apiGet, apiPost, apiPut } from '@/lib/api';
 import { PageHeader } from '@/components/page-header'; import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button'; import { Input } from '@/components/ui/input'; import { Label } from '@/components/ui/label'; import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { formatPkr } from '@/lib/utils'; import { ArrowLeft, CreditCard } from 'lucide-react'; import { toast } from 'sonner';
+import { Textarea } from '@/components/ui/textarea'; import { useAuth, hasPermission } from '@/lib/auth';
+import { formatPkr } from '@/lib/utils'; import { ArrowLeft, CreditCard, Pencil } from 'lucide-react'; import { toast } from 'sonner';
 
 const sVar: Record<string, 'default'|'secondary'|'destructive'> = { ACTIVE: 'default', PARTIALLY_PAID: 'secondary', PAID: 'default', OVERDUE: 'destructive' };
 
@@ -13,6 +14,8 @@ export default function LoanDetailPage() {
   const [showPayment, setShowPayment] = useState(false);
   const [payForm, setPayForm] = useState({ amount: 0, paymentMethod: 'CASH', paymentDate: '', notes: '' });
   const [saving, setSaving] = useState(false);
+  const { user } = useAuth();
+  const [showEdit, setShowEdit] = useState(false); const [editNotes, setEditNotes] = useState('');
 
   useEffect(() => { apiGet(`/loans/${params.id}`).then((r: any) => { if (r?.data) setLoan(r.data); setLoading(false); }).catch(() => setLoading(false)); }, [params.id]);
 
@@ -24,11 +27,17 @@ export default function LoanDetailPage() {
   };
 
   if (loading) return <div className="animate-spin h-8 w-8 m-12 border-4 border-primary border-t-transparent rounded-full" />;
+  const handleEdit = async () => {
+    setSaving(true);
+    try { const res = await apiPut(`/loans/${params.id}`, { notes: editNotes }) as any; if (res.error) { toast.error(res.error.detail); return; } toast.success('Loan updated'); setLoan((l: any) => ({ ...l, notes: editNotes })); setShowEdit(false); }
+    catch (err: any) { toast.error(err.message); } finally { setSaving(false); }
+  };
+
   if (!loan) return <div className="text-center py-12 text-muted-foreground">Loan not found</div>;
   const progress = loan.principalAmount > 0 ? (loan.totalPaid / loan.principalAmount) * 100 : 0;
 
   return (<div className="space-y-6">
-    <PageHeader title={loan.loanNumber} description={loan.partyName}><Button variant="outline" size="sm" onClick={() => router.back()}><ArrowLeft className="h-4 w-4 mr-1.5" />Back</Button></PageHeader>
+    <PageHeader title={loan.loanNumber} description={loan.partyName}><Button variant="outline" size="sm" onClick={() => router.back()}><ArrowLeft className="h-4 w-4 mr-1.5" />Back</Button>{hasPermission(user, 'loans.manage') && <Button variant="outline" size="sm" onClick={() => { setEditNotes(loan.notes || ''); setShowEdit(true); }}><Pencil className="h-4 w-4 mr-1.5" />Edit</Button>}</PageHeader>
     <div className="grid gap-3 sm:grid-cols-4">
       <Card><CardHeader className="pb-1"><CardTitle className="text-xs text-muted-foreground">Amount</CardTitle></CardHeader><CardContent><p className="text-xl font-bold">{formatPkr(loan.principalAmount)}</p></CardContent></Card>
       <Card><CardHeader className="pb-1"><CardTitle className="text-xs text-muted-foreground">Paid</CardTitle></CardHeader><CardContent><p className="text-xl font-bold text-emerald-600">{formatPkr(loan.totalPaid)}</p></CardContent></Card>
@@ -36,12 +45,20 @@ export default function LoanDetailPage() {
       <Card><CardHeader className="pb-1"><CardTitle className="text-xs text-muted-foreground">Status</CardTitle></CardHeader><CardContent><Badge variant={sVar[loan.status] || 'outline'}>{loan.status}</Badge></CardContent></Card>
     </div>
     <div className="bg-muted/30 rounded-lg h-4 w-full overflow-hidden"><div className="bg-emerald-500 h-full transition-all" style={{ width: `${Math.min(progress, 100)}%` }} /></div>
-    <div className="grid gap-3 sm:grid-cols-2"><Card><CardHeader className="pb-1"><CardTitle className="text-sm">Details</CardTitle></CardHeader><CardContent className="text-sm space-y-1"><p><span className="text-muted-foreground">Type: </span>{loan.type === 'GIVEN' ? 'We Lent' : 'We Borrowed'}</p><p><span className="text-muted-foreground">Party: </span>{loan.partyName} ({loan.partyPhone})</p><p><span className="text-muted-foreground">Interest: </span>{loan.interestRate}%</p><p><span className="text-muted-foreground">Start: </span>{new Date(loan.startDate).toLocaleDateString()}</p><p><span className="text-muted-foreground">Due: </span>{loan.dueDate ? new Date(loan.dueDate).toLocaleDateString() : '-'}</p></CardContent></Card>
+    <div className="grid gap-3 sm:grid-cols-2"><Card><CardHeader className="pb-1"><CardTitle className="text-sm">Details</CardTitle></CardHeader><CardContent className="text-sm space-y-1"><p><span className="text-muted-foreground">Type: </span>{loan.type === 'GIVEN' ? 'We Lent' : 'We Borrowed'}</p><p><span className="text-muted-foreground">Party: </span>{loan.partyName} ({loan.partyPhone})</p><p><span className="text-muted-foreground">Interest: </span>{loan.interestRate}%</p><p><span className="text-muted-foreground">Start: </span>{new Date(loan.startDate).toLocaleDateString()}</p><p><span className="text-muted-foreground">Due: </span>{loan.dueDate ? new Date(loan.dueDate).toLocaleDateString() : '-'}</p><p><span className="text-muted-foreground">Notes: </span>{loan.notes || '-'}</p></CardContent></Card>
       <Card><CardHeader className="pb-1"><CardTitle className="text-sm">Payments</CardTitle></CardHeader><CardContent>
         <Button size="sm" onClick={() => setShowPayment(true)} className="mb-2"><CreditCard className="h-4 w-4 mr-1.5" />Record Payment</Button>
         {loan.payments?.length > 0 ? <div className="space-y-1 max-h-40 overflow-y-auto">{loan.payments.map((p: any) => <div key={p.id} className="flex justify-between text-xs border-b py-1"><span>{new Date(p.paymentDate).toLocaleDateString()}</span><span className="font-medium">{formatPkr(p.amount)}</span><span className="text-muted-foreground">{p.paymentMethod}</span></div>)}</div> : <p className="text-xs text-muted-foreground">No payments yet</p>}
       </CardContent></Card>
     </div>
+    <Dialog open={showEdit} onOpenChange={setShowEdit}>
+      <DialogContent className="sm:max-w-sm"><DialogHeader><DialogTitle>Edit Loan</DialogTitle></DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1"><Label>Notes</Label><Textarea value={editNotes} onChange={(e) => setEditNotes(e.target.value)} /></div>
+          <Button className="w-full" onClick={handleEdit} disabled={saving}>{saving ? 'Saving...' : 'Save'}</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
     <Dialog open={showPayment} onOpenChange={setShowPayment}>
       <DialogContent className="sm:max-w-sm"><DialogHeader><DialogTitle>Record Payment</DialogTitle></DialogHeader>
         <div className="space-y-3">
