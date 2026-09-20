@@ -35,7 +35,7 @@ const columns: ColumnDef<Sale>[] = [
   { id: 'actions', header: '', cell: ({ row }) => (
     <div className="flex gap-1">
       <Button variant="ghost" size="sm" asChild><Link href={`/sales/${row.original.id}`}>View</Link></Button>
-      {row.original.status === 'COMPLETED' && <Button variant="ghost" size="sm" asChild><Link href={`/sales/returns/create/${row.original.id}`}>Return</Link></Button>}
+      {row.original.status === 'COMPLETED' && <Button variant="ghost" size="sm" asChild><Link href={`/sales/returns/create?saleId=${row.original.id}`}>Return</Link></Button>}
     </div>
   )},
 ];

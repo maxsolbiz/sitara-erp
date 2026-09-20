@@ -30,6 +30,10 @@ export default function CreateSalesReturnPage() {
     } else toast.error('Sale not found');
   };
 
+  useEffect(() => {
+    if (saleId) loadSale();
+  }, [saleId]);
+
   const total = items.reduce((s, i) => s + (i.qtyReturned * i.unitPrice), 0);
 
   const handleSubmit = async (e: React.FormEvent) => {
