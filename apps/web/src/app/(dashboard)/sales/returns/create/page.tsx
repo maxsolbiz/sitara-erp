@@ -31,8 +31,9 @@ export default function CreateSalesReturnPage() {
   };
 
   useEffect(() => {
-    if (saleId) loadSale();
-  }, [saleId]);
+    if (searchParams.get('saleId')) loadSale();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const total = items.reduce((s, i) => s + (i.qtyReturned * i.unitPrice), 0);
 
