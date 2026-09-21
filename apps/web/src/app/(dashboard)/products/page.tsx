@@ -11,7 +11,7 @@ import { api, apiGet, getAccessToken } from '@/lib/api';
 import { formatPkr } from '@/lib/utils';
 import { useAuth, hasPermission } from '@/lib/auth';
 import { ColumnDef } from '@tanstack/react-table';
-import { Package, Plus, Download, Upload, AlertTriangle, X } from 'lucide-react';
+import { Package, Plus, Download, Upload, AlertTriangle, X, Clock } from 'lucide-react';
 
 interface Product {
   id: string;
@@ -78,6 +78,7 @@ export default function ProductsPage() {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<any>(null);
   const [downloading, setDownloading] = useState('');
+  const [showHist, setShowHist] = useState(false); const [hist, setHist] = useState<any[] | null>(null); const [histErr, setHistErr] = useState('');
 
   const downloadFile = async (url: string, filename: string) => {
     setDownloading(url);
@@ -92,7 +93,9 @@ export default function ProductsPage() {
     } catch {} finally { setDownloading(''); }
   };
 
-  async function load() {
+  const openHist = async () => { setShowHist(true); setHist(null); setHistErr(''); const r = await apiGet('/products/import/history').catch(() => null) as any; if (r?.data) setHist(r.data); else { setHist([]); setHistErr(r?.error?.detail || 'Could not load import history'); } };
+
+async function load() {
     try {
       const [listRes, statsRes] = await Promise.all([
         apiGet('/products') as any,
@@ -113,6 +116,7 @@ export default function ProductsPage() {
       <PageHeader title="Products" description="Manage your product catalog">
         {hasPermission(user, 'products.export') && <Button variant="outline" size="sm" onClick={() => downloadFile('/api/v1/products/export', `products-export-${new Date().toISOString().slice(0,10)}.csv`)} disabled={!!downloading}><Download className="h-4 w-4 mr-1.5" />Export</Button>}
         {hasPermission(user, 'products.import') && <Button variant="outline" size="sm" onClick={() => { setShowImport(true); setImportResult(null); setImportFile(null); }}><Upload className="h-4 w-4 mr-1.5" />Import</Button>}
+        {hasPermission(user, 'products.import') && <Button variant="outline" size="sm" onClick={openHist}><Clock className="h-4 w-4 mr-1.5" />History</Button>}
         {hasPermission(user, 'products.create') && <Button size="sm" asChild><Link href="/products/create"><Plus className="h-4 w-4 mr-1.5" />Add Product</Link></Button>}
       </PageHeader>
 
@@ -133,6 +137,12 @@ export default function ProductsPage() {
         searchPlaceholder="Search products, SKU, barcode..."
       />
 
+      {showHist && <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center" onClick={() => setShowHist(false)}>
+        <div className="bg-background rounded-lg shadow-xl p-6 max-w-2xl w-full mx-4" onClick={(e) => e.stopPropagation()}>
+          <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-lg">Import History</h3><button aria-label="Close history" onClick={() => setShowHist(false)}><X className="h-4 w-4" /></button></div>
+          {hist === null ? <p className="text-sm text-muted-foreground">Loading...</p> : histErr ? <p className="text-red-600 text-sm">{histErr}</p> : hist.length === 0 ? <p className="text-sm text-muted-foreground">No imports yet</p> : (<div className="max-h-80 overflow-y-auto"><table className="w-full text-xs"><thead><tr className="text-left text-muted-foreground border-b"><th className="py-1 pr-2">File</th><th className="pr-2">Date</th><th className="pr-2 text-right">Total</th><th className="pr-2 text-right">Imported</th><th className="pr-2 text-right">Skipped</th><th className="pr-2 text-right">Errors</th><th>Status</th></tr></thead><tbody>{hist.map((h: any) => (<tr key={h.id} className="border-b"><td className="py-1 pr-2 max-w-[10rem] truncate" title={h.filename}>{h.filename}</td><td className="pr-2">{new Date(h.createdAt).toLocaleString()}</td><td className="pr-2 text-right">{h.totalRows}</td><td className="pr-2 text-right">{h.imported}</td><td className="pr-2 text-right">{h.skipped}</td><td className="pr-2 text-right">{h.errors}</td><td>{h.status}</td></tr>))}</tbody></table></div>)}
+        </div>
+      </div>}
       {showImport && <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center" onClick={() => !importing && setShowImport(false)}>
         <div className="bg-background rounded-lg shadow-xl p-6 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
           <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-lg">Import Products</h3><button onClick={() => !importing && setShowImport(false)}><X className="h-4 w-4" /></button></div>
