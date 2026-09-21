@@ -56,6 +56,7 @@ const NAV_ITEMS: NavItem[] = [
     children: [
       { title: 'All Sales', href: '/sales', permission: 'sales.view' },
       { title: 'Returns', href: '/sales/returns', permission: 'sales.returns.view' },
+      { title: 'Return Logs', href: '/sales/return-logs', permission: 'sales.returns.view' },
     ],
   },
   {
