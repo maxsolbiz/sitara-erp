@@ -1,7 +1,6 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { getTenantContext } from '../lib/prisma';
-import { authMiddleware } from '../middleware/auth';
 import { rbacMiddleware } from '../middleware/rbac';
 import { tenantMiddleware } from '../middleware/tenant';
 import { generateProductDescription, generateSalesSummary } from '../services/ai.service';
@@ -9,7 +8,7 @@ import logger from '../utils/logger';
 
 const router = Router();
 
-router.post('/product-description', authMiddleware, tenantMiddleware, rbacMiddleware('products.create'), async (req: Request, res: Response) => {
+router.post('/product-description', tenantMiddleware, rbacMiddleware('products.create'), async (req: Request, res: Response) => {
   try {
     const { name, category, price } = req.body;
     if (!name) { res.status(400).json({ success: false, error: 'name required' }); return; }
@@ -21,7 +20,7 @@ router.post('/product-description', authMiddleware, tenantMiddleware, rbacMiddle
   }
 });
 
-router.get('/sales-summary', authMiddleware, tenantMiddleware, rbacMiddleware('reports.view'), async (req: Request, res: Response) => {
+router.get('/sales-summary', tenantMiddleware, rbacMiddleware('reports.view'), async (req: Request, res: Response) => {
   try {
     const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ success: false }); return; }
     const today = new Date();
