@@ -53,7 +53,7 @@ async function geminiChat(messages: { role: 'system'|'user'|'assistant'; content
     const res = await axios.post(`${GEMINI_BASE}?key=${GEMINI_KEY}`, {
       contents,
       generationConfig: { temperature: 0.7, maxOutputTokens: 500 }
-    }, { timeout: 30000 });
+    }, { timeout: 15000 });
 
     const text = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!text) throw new Error('Empty Gemini response');
@@ -79,7 +79,7 @@ async function groqChat(messages: { role: 'system'|'user'|'assistant'; content: 
       messages,
       temperature: 0.7,
       max_tokens: 500
-    }, { headers: { Authorization: `Bearer ${GROQ_KEY}`, 'Content-Type': 'application/json' }, timeout: 30000 });
+    }, { headers: { Authorization: `Bearer ${GROQ_KEY}`, 'Content-Type': 'application/json' }, timeout: 15000 });
 
     const text = res.data.choices?.[0]?.message?.content;
     if (!text) throw new Error('Empty Groq response');
