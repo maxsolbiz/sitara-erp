@@ -43,7 +43,7 @@ export default function CreatePurchaseReturnPage() {
     try {
       const res = await apiPost('/purchases/returns', { vendorId: selectedVendor, reason, items }) as any;
       if (res.error) { toast.error(res.error.detail); return; }
-      toast.success('Return created');
+      toast.success('Return submitted for approval');
       router.push('/purchases/returns');
     } catch (err: any) { toast.error(err.message); } finally { setSaving(false); }
   };

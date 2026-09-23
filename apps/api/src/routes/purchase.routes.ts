@@ -257,71 +257,186 @@ router.get('/returns/:id', rbacMiddleware('purchases.view'), async (req: Request
   } catch { logger.error('Purchase return detail failed'); res.status(500).json({ status: 500 }); }
 });
 
-router.post('/returns', rbacMiddleware('purchases.returns'), async (req: Request, res: Response) => {
+router.post('/returns', rbacMiddleware('purchases.returns.create'), async (req: Request, res: Response) => {
   try {
     const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
-    const { purchaseOrderId, vendorId, returnDate, reason, notes, items } = req.body;
+    const { purchaseOrderId, vendorId, returnDate, reason, items } = req.body;
     if (!vendorId || !items || items.length === 0) { res.status(400).json({ status: 400, detail: 'Vendor ID and items required' }); return; }
+    for (const item of items) {
+      if (!item.receiptItemId) { res.status(400).json({ status: 400, detail: 'receiptItemId is required for every item' }); return; }
+      if (!Number.isInteger(item.quantityReturned) || item.quantityReturned <= 0) { res.status(400).json({ status: 400, detail: `Quantity must be a positive integer for receipt item ${item.receiptItemId}` }); return; }
+    }
     const tenantId = ctx.tenantId;
 
     const vendor = await prisma.vendor.findFirst({ where: { id: BigInt(vendorId), tenantId } });
     if (!vendor) { res.status(404).json({ status: 404, detail: 'Vendor not found' }); return; }
 
-    // FK ownership: optional PO plus every item warehouse/product must
-    // belong to this tenant.
+    // FK ownership: optional PO plus every receipt line must belong to this
+    // tenant. productId, unitCost and warehouseId are ALWAYS derived
+    // server-side from the receipt item, never from the request body.
     if (purchaseOrderId) {
       const po = await prisma.purchaseOrder.findFirst({ where: { id: BigInt(purchaseOrderId), tenantId }, select: { id: true } });
       if (!po) { res.status(403).json({ status: 403, detail: 'Purchase order not found or not accessible' }); return; }
     }
+    let receiptItemIds: bigint[];
+    try {
+      receiptItemIds = items.map((i: any) => BigInt(i.receiptItemId));
+    } catch {
+      res.status(400).json({ status: 400, detail: 'Invalid receiptItemId' }); return;
+    }
+    const receiptItems = await prisma.purchaseReceiptItem.findMany({
+      where: { tenantId, id: { in: receiptItemIds } },
+      select: { id: true, productId: true, quantityReceived: true, unitCost: true, purchaseReceiptId: true, purchaseReceipt: { select: { warehouseId: true } } },
+    });
+    const receiptItemMap = new Map(receiptItems.map((ri) => [ri.id.toString(), ri]));
     for (const item of items) {
-      const wh = await prisma.warehouse.findFirst({ where: { id: BigInt(item.warehouseId || 0), tenantId }, select: { id: true } });
-      if (!wh) { res.status(403).json({ status: 403, detail: `Warehouse ${item.warehouseId} not found or not accessible` }); return; }
-      const prod = await prisma.product.findFirst({ where: { id: BigInt(item.productId), tenantId }, select: { id: true } });
-      if (!prod) { res.status(403).json({ status: 403, detail: `Product ${item.productId} not found or not accessible` }); return; }
+      if (!receiptItemMap.has(String(item.receiptItemId))) { res.status(400).json({ status: 400, detail: `Receipt item ${item.receiptItemId} not found or not accessible` }); return; }
     }
 
     const result = await prisma.$transaction(async (tx: any) => {
-      const returnNumber = `PRET-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${String(Math.floor(Math.random() * 9999)).padStart(4, '0')}`;
-      const totalAmount = items.reduce((s: number, i: any) => s + (i.unitCost || 0) * (i.quantityReturned || 0), 0);
+      // Remaining-quantity check against a fresh read inside the transaction:
+      // received minus already-returned (PENDING + APPROVED rows), plus what
+      // this same request already claimed per receipt item.
+      const priorReturned = await tx.purchaseReturnItem.groupBy({
+        by: ['receiptItemId'],
+        where: { tenantId, receiptItemId: { in: receiptItemIds }, purchaseReturn: { status: { in: ['PENDING', 'APPROVED'] } } },
+        _sum: { quantityReturned: true },
+      });
+      const priorMap = new Map<string, number>(priorReturned.map((p: any): [string, number] => [p.receiptItemId.toString(), Number(p._sum.quantityReturned) || 0]));
+      const claimedInThisRequest = new Map<string, number>();
 
+      const resolvedItems = items.map((item: any) => {
+        const ri = receiptItemMap.get(String(item.receiptItemId))!;
+        const key = String(item.receiptItemId);
+        const already = (priorMap.get(key) || 0) + (claimedInThisRequest.get(key) || 0);
+        const remaining = ri.quantityReceived - already;
+        if (item.quantityReturned > remaining) {
+          throw new Error(`REJECT:400:Quantity ${item.quantityReturned} exceeds remaining returnable quantity ${remaining} for receipt item ${item.receiptItemId}`);
+        }
+        claimedInThisRequest.set(key, already + item.quantityReturned);
+        const unitCost = Number(ri.unitCost);
+        return { receiptItemId: ri.id, productId: ri.productId, quantity: item.quantityReturned, unitCost, lineTotal: item.quantityReturned * unitCost, warehouseId: ri.purchaseReceipt.warehouseId };
+      });
+
+      const totalAmount = resolvedItems.reduce((s: number, i: any) => s + i.lineTotal, 0);
+      const returnNumber = `PRET-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${String(Math.floor(Math.random() * 9999)).padStart(4, '0')}`;
+
+      // Created PENDING with NO stock/journal/vendor effects - those fire
+      // only on approve (see PATCH /returns/:id/approve below).
       const ret = await tx.purchaseReturn.create({
         data: {
           tenantId, returnNumber, purchaseOrderId: purchaseOrderId ? BigInt(purchaseOrderId) : null,
           vendorId: BigInt(vendorId), returnDate: returnDate ? new Date(returnDate) : new Date(),
-          totalAmount, reason: reason || 'Other', status: 'APPROVED', createdBy: requireAuthUserId(req),
+          totalAmount, reason: reason || 'Other', status: 'PENDING', createdBy: requireAuthUserId(req),
         },
       });
 
-      for (const item of items) {
-        const qty = item.quantityReturned || 0;
-        if (qty <= 0) continue;
-        const unitCost = item.unitCost || 0;
-        const lineTotal = qty * unitCost;
-        const whId = BigInt(item.warehouseId || 0);
-
+      for (const item of resolvedItems) {
         await tx.purchaseReturnItem.create({
-          data: { tenantId, purchaseReturnId: ret.id, productId: BigInt(item.productId), quantityReturned: qty, unitCost, lineTotal },
+          data: { tenantId, purchaseReturnId: ret.id, receiptItemId: item.receiptItemId, productId: item.productId, quantityReturned: item.quantity, unitCost: item.unitCost, lineTotal: item.lineTotal },
         });
+      }
 
-        // Decrement warehouse stock
-        const stock = await tx.warehouseStock.findFirst({ where: { tenantId, warehouseId: whId, productId: BigInt(item.productId) } });
-        if (stock && stock.quantity >= qty) {
-          await tx.warehouseStock.update({ where: { id: stock.id }, data: { quantity: { decrement: qty } } });
+      return { id: ret.id.toString(), returnNumber };
+    });
+
+    logger.info('Purchase return created', { returnNumber: result.returnNumber, tenantId: tenantId.toString() });
+    res.status(201).json({ data: result });
+  } catch (error: any) {
+    const m = /^REJECT:(\d+):(.*)$/.exec(error.message || '');
+    if (m) { res.status(Number(m[1])).json({ status: Number(m[1]), detail: m[2] }); return; }
+    logger.error('Purchase return failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message });
+  }
+});
+
+router.patch('/returns/:id/approve', rbacMiddleware('purchases.returns.approve'), async (req: Request, res: Response) => {
+  try {
+    const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
+    const tenantId = ctx.tenantId;
+    const ret = await prisma.purchaseReturn.findFirst({
+      where: { id: BigInt(req.params.id), tenantId },
+      include: { items: true },
+    });
+    if (!ret) { res.status(404).json({ status: 404, detail: 'Return not found' }); return; }
+    if (ret.status !== 'PENDING') { res.status(400).json({ status: 400, detail: `Return is already ${ret.status}` }); return; }
+
+    await prisma.$transaction(async (tx: any) => {
+      // Re-check remaining quantity against fresh data: time has passed
+      // since create, and another approval may have consumed it since.
+      const receiptItemIds = ret.items.map((i: any) => i.receiptItemId);
+      const priorReturned = await tx.purchaseReturnItem.groupBy({
+        by: ['receiptItemId'],
+        where: { tenantId, receiptItemId: { in: receiptItemIds }, purchaseReturn: { status: { in: ['PENDING', 'APPROVED'] } } },
+        _sum: { quantityReturned: true },
+      });
+      const priorMap = new Map<string, number>(priorReturned.map((p: any): [string, number] => [p.receiptItemId.toString(), Number(p._sum.quantityReturned) || 0]));
+      // This return's own PENDING rows are included in priorMap (they were
+      // written at create time), so subtract this return's per-item totals
+      // first: a return only competes with OTHER returns, not with itself.
+      const ownTotals = new Map<string, number>();
+      for (const item of ret.items) {
+        const key = item.receiptItemId.toString();
+        ownTotals.set(key, (ownTotals.get(key) || 0) + Number(item.quantityReturned));
+      }
+      const claimedInThisRequest = new Map<string, number>();
+      for (const item of ret.items) {
+        const receiptItem = await tx.purchaseReceiptItem.findFirst({
+          where: { id: item.receiptItemId, tenantId },
+          select: { quantityReceived: true },
+        });
+        if (!receiptItem) {
+          throw new Error(`REJECT:400:Receipt item ${item.receiptItemId.toString()} not found or not accessible`);
         }
+        const key = item.receiptItemId.toString();
+        const others = (priorMap.get(key) || 0) - (ownTotals.get(key) || 0);
+        const claimed = claimedInThisRequest.get(key) || 0;
+        const remaining = receiptItem.quantityReceived - others - claimed;
+        if (Number(item.quantityReturned) > remaining) {
+          throw new Error(`REJECT:400:Quantity ${item.quantityReturned} exceeds remaining returnable quantity ${remaining} for receipt item ${key}`);
+        }
+        claimedInThisRequest.set(key, claimed + Number(item.quantityReturned));
+      }
 
-        // Reduce earliest FIFO batch
-        const fifoBatch = await tx.stockBatch.findFirst({
-          where: { tenantId, warehouseId: whId, productId: BigInt(item.productId), quantityRemaining: { gt: 0 } },
-          orderBy: { receivedAt: 'asc' },
+      for (const item of ret.items) {
+        const qty = Number(item.quantityReturned);
+        const unitCost = Number(item.unitCost);
+        const receiptItem = await tx.purchaseReceiptItem.findFirst({
+          where: { id: item.receiptItemId, tenantId },
+          select: { productId: true, purchaseReceipt: { select: { warehouseId: true } } },
         });
-        if (fifoBatch) {
-          await tx.stockBatch.update({ where: { id: fifoBatch.id }, data: { quantityRemaining: { decrement: qty } } });
+        const productId = receiptItem!.productId;
+        const whId = receiptItem!.purchaseReceipt.warehouseId;
+
+        // Stock decrement WITH a floor check: insufficient stock rejects
+        // instead of silently skipping (the old code skipped and still
+        // moved the journal and vendor balance).
+        const stock = await tx.warehouseStock.findFirst({ where: { tenantId, warehouseId: whId, productId } });
+        if (!stock || Number(stock.quantity) < qty) {
+          throw new Error(`REJECT:400:Insufficient stock for product ${productId.toString()} in warehouse ${whId.toString()}`);
+        }
+        await tx.warehouseStock.update({ where: { id: stock.id }, data: { quantity: { decrement: qty } } });
+
+        // FIFO batch decrement WITH a floor: never drive negative.
+        let stillToTake = qty;
+        while (stillToTake > 0) {
+          const fifoBatch = await tx.stockBatch.findFirst({
+            where: { tenantId, warehouseId: whId, productId, quantityRemaining: { gt: 0 } },
+            orderBy: { receivedAt: 'asc' },
+          });
+          if (!fifoBatch || Number(fifoBatch.quantityRemaining) <= 0) {
+            throw new Error(`REJECT:400:Insufficient batch stock for product ${productId.toString()} in warehouse ${whId.toString()}`);
+          }
+          const take = Math.min(stillToTake, Number(fifoBatch.quantityRemaining));
+          await tx.stockBatch.update({ where: { id: fifoBatch.id }, data: { quantityRemaining: { decrement: take } } });
+          stillToTake -= take;
         }
 
         await tx.stockMovement.create({
-          data: { tenantId, warehouseId: whId, productId: BigInt(item.productId), movementType: 'PURCHASE_RETURN', quantity: -qty, unitCost, referenceType: 'purchase_return', referenceId: ret.id, createdBy: requireAuthUserId(req) },
+          data: { tenantId, warehouseId: whId, productId, movementType: 'PURCHASE_RETURN', quantity: -qty, unitCost, referenceType: 'purchase_return', referenceId: ret.id, createdBy: requireAuthUserId(req) },
         });
       }
+
+      const totalAmount = Number(ret.totalAmount);
 
       // Journal entry: Dr AP, Cr Inventory
       if (totalAmount > 0) {
@@ -332,8 +447,8 @@ router.post('/returns', rbacMiddleware('purchases.returns'), async (req: Request
         if (apAcct && invAcct) {
           await tx.journalEntry.create({
             data: {
-              tenantId, entryNumber: `PRET-${returnNumber.replace('PRET-', '')}`, entryDate: new Date(),
-              description: `Purchase return ${returnNumber}`,
+              tenantId, entryNumber: `PRET-${ret.returnNumber.replace('PRET-', '')}`, entryDate: new Date(),
+              description: `Purchase return ${ret.returnNumber}`,
               totalDebit: totalAmount, totalCredit: totalAmount,
               createdBy: requireAuthUserId(req),
               lines: { create: [{ tenantId, accountId: apAcct.id, debitAmount: totalAmount, creditAmount: 0, description: 'Return to vendor' }, { tenantId, accountId: invAcct.id, debitAmount: 0, creditAmount: totalAmount, description: 'Inventory returned' }] },
@@ -343,29 +458,48 @@ router.post('/returns', rbacMiddleware('purchases.returns'), async (req: Request
       }
 
       // Update vendor balance
-      const vendorBefore = Number(vendor.currentBalance);
-      await tx.vendor.update({ where: { id: vendor.id }, data: { currentBalance: { decrement: totalAmount } } });
-      await tx.vendorLedger.create({
-        data: { tenantId, vendorId: vendor.id, type: 'RETURN', amount: totalAmount, balanceBefore: vendorBefore, balanceAfter: vendorBefore - totalAmount, referenceId: ret.id, referenceType: 'purchase_return', notes: `Return ${returnNumber}`, createdBy: requireAuthUserId(req) },
-      });
+      const vendor = await tx.vendor.findFirst({ where: { id: ret.vendorId, tenantId }, select: { id: true, currentBalance: true } });
+      if (vendor) {
+        const vendorBefore = Number(vendor.currentBalance);
+        await tx.vendor.update({ where: { id: vendor.id }, data: { currentBalance: { decrement: totalAmount } } });
+        await tx.vendorLedger.create({
+          data: { tenantId, vendorId: vendor.id, type: 'RETURN', amount: totalAmount, balanceBefore: vendorBefore, balanceAfter: vendorBefore - totalAmount, referenceId: ret.id, referenceType: 'purchase_return', notes: `Return ${ret.returnNumber}`, createdBy: requireAuthUserId(req) },
+        });
+      }
 
-      return { id: ret.id.toString(), returnNumber };
+      await tx.purchaseReturn.update({
+        where: { id: ret.id },
+        data: { status: 'APPROVED', approvedBy: requireAuthUserId(req), approvedAt: new Date() },
+      });
     });
 
-    logger.info('Purchase return created', { returnNumber: result.returnNumber, tenantId: tenantId.toString() });
-    res.status(201).json({ data: result });
-  } catch (error: any) { logger.error('Purchase return failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
+    res.json({ data: { message: 'Return approved' } });
+  } catch (error: any) {
+    const m = /^REJECT:(\d+):(.*)$/.exec(error.message || '');
+    if (m) { res.status(Number(m[1])).json({ status: Number(m[1]), detail: m[2] }); return; }
+    logger.error('Purchase return approve failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message });
+  }
 });
 
-router.patch('/returns/:id/approve', rbacMiddleware('purchases.returns'), async (req: Request, res: Response) => {
+router.patch('/returns/:id/reject', rbacMiddleware('purchases.returns.approve'), async (req: Request, res: Response) => {
   try {
     const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
-    await prisma.purchaseReturn.updateMany({
+    const ret = await prisma.purchaseReturn.findFirst({
       where: { id: BigInt(req.params.id), tenantId: ctx.tenantId },
-      data: { status: 'APPROVED', approvedBy: requireAuthUserId(req), approvedAt: new Date() },
+      select: { id: true, status: true },
     });
-    res.json({ data: { message: 'Return approved' } });
-  } catch (error: any) { logger.error('Purchase return approve failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
+    if (!ret) { res.status(404).json({ status: 404, detail: 'Return not found' }); return; }
+    if (ret.status !== 'PENDING') { res.status(400).json({ status: 400, detail: `Return is already ${ret.status}` }); return; }
+    await prisma.purchaseReturn.updateMany({
+      where: { id: ret.id, tenantId: ctx.tenantId, status: 'PENDING' },
+      data: { status: 'REJECTED' },
+    });
+    res.json({ data: { message: 'Return rejected' } });
+  } catch (error: any) {
+    const m = /^REJECT:(\d+):(.*)$/.exec(error.message || '');
+    if (m) { res.status(Number(m[1])).json({ status: Number(m[1]), detail: m[2] }); return; }
+    logger.error('Purchase return reject failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message });
+  }
 });
 
 export default router;

@@ -12,7 +12,7 @@ export const ALL_PERMISSIONS = [
   'vendors.view', 'vendors.create', 'vendors.update', 'vendors.delete',
   'vendors.export', 'vendors.payments',
   'purchases.view', 'purchases.create', 'purchases.update',
-  'purchases.receive', 'purchases.returns',
+  'purchases.receive', 'purchases.returns.create', 'purchases.returns.approve',
   'inventory.view', 'inventory.adjust', 'inventory.transfer',
   'inventory.movements', 'inventory.adjustments',
   'reports.view', 'reports.sales', 'reports.purchases',

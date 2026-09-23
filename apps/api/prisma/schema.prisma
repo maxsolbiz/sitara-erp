@@ -896,6 +896,7 @@ model PurchaseReceiptItem {
   purchaseReceipt   PurchaseReceipt   @relation(fields: [purchaseReceiptId], references: [id], onDelete: Cascade)
   purchaseOrderItem PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id], onDelete: Restrict)
   product           Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
+  purchaseReturnItems PurchaseReturnItem[]
 
   @@index([tenantId])
   @@index([purchaseReceiptId])
@@ -936,6 +937,7 @@ model PurchaseReturnItem {
   id              BigInt  @id @default(autoincrement())
   tenantId        BigInt  @map("tenant_id")
   purchaseReturnId BigInt @map("purchase_return_id")
+  receiptItemId   BigInt  @map("receipt_item_id")
   productId       BigInt  @map("product_id")
   quantityReturned Int    @map("quantity_returned")
   unitCost        Decimal @map("unit_cost") @db.Decimal(15, 4)
@@ -944,10 +946,12 @@ model PurchaseReturnItem {
 
   tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   purchaseReturn PurchaseReturn @relation(fields: [purchaseReturnId], references: [id], onDelete: Cascade)
+  receiptItem    PurchaseReceiptItem @relation(fields: [receiptItemId], references: [id], onDelete: Restrict)
   product        Product        @relation(fields: [productId], references: [id], onDelete: Restrict)
 
   @@index([tenantId])
   @@index([purchaseReturnId])
+  @@index([receiptItemId])
   @@index([productId])
   @@map("purchase_return_items")
 }

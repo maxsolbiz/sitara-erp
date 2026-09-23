@@ -94,7 +94,7 @@ export class AuthService {
       'accounting': ['accounting.view', 'accounting.journals.create', 'accounting.accounts.manage', 'accounting.reports', 'accounting.journals.reverse'],
       'customers': ['customers.view', 'customers.create', 'customers.update', 'customers.delete', 'customers.export', 'customers.payments'],
       'vendors': ['vendors.view', 'vendors.create', 'vendors.update', 'vendors.delete', 'vendors.export', 'vendors.payments'],
-      'purchases': ['purchases.view', 'purchases.create', 'purchases.update', 'purchases.receive', 'purchases.returns'],
+      'purchases': ['purchases.view', 'purchases.create', 'purchases.update', 'purchases.receive', 'purchases.returns.create', 'purchases.returns.approve'],
       'inventory': ['inventory.view', 'inventory.adjust', 'inventory.transfer', 'inventory.movements', 'inventory.adjustments'],
       'reports': ['reports.view', 'reports.sales', 'reports.purchases', 'reports.inventory', 'reports.financial', 'reports.export'],
       'settings': ['settings.view', 'settings.company', 'settings.pos', 'settings.notifications', 'settings.backup', 'settings.update'],
@@ -122,7 +122,7 @@ export class AuthService {
 
     const roleDefs = [
       { name: 'Admin', slug: 'admin', description: 'Full system access with all permissions', permissions: allPermSlugs },
-      { name: 'Manager', slug: 'manager', description: 'Can manage inventory, purchases, customers, and view reports', permissions: [...DEFAULT_PERMISSIONS.products, ...DEFAULT_PERMISSIONS.sales, ...DEFAULT_PERMISSIONS.customers, ...DEFAULT_PERMISSIONS.vendors, ...DEFAULT_PERMISSIONS.purchases, ...DEFAULT_PERMISSIONS.inventory, ...DEFAULT_PERMISSIONS.reports, ...DEFAULT_PERMISSIONS.loans, ...DEFAULT_PERMISSIONS.settings, ...DEFAULT_PERMISSIONS.notifications, 'expenses.approve', 'expenses.pay'] },
+      { name: 'Manager', slug: 'manager', description: 'Can manage inventory, purchases, customers, and view reports', permissions: [...DEFAULT_PERMISSIONS.products, ...DEFAULT_PERMISSIONS.sales, ...DEFAULT_PERMISSIONS.customers, ...DEFAULT_PERMISSIONS.vendors, ...DEFAULT_PERMISSIONS.purchases, ...DEFAULT_PERMISSIONS.inventory, ...DEFAULT_PERMISSIONS.reports, ...DEFAULT_PERMISSIONS.loans, ...DEFAULT_PERMISSIONS.settings, ...DEFAULT_PERMISSIONS.notifications, 'expenses.approve', 'expenses.pay'].filter((s) => s !== 'purchases.returns.approve') },
       { name: 'Cashier', slug: 'cashier', description: 'Can operate POS and view sales', permissions: [...DEFAULT_PERMISSIONS.pos, ...DEFAULT_PERMISSIONS.notifications, 'sales.view', 'customers.view', 'customers.create'] },
       { name: 'Accountant', slug: 'accountant', description: 'Can manage accounting, expenses, and financial reports', permissions: [...DEFAULT_PERMISSIONS.accounting, ...DEFAULT_PERMISSIONS.reports, ...DEFAULT_PERMISSIONS.loans, ...DEFAULT_PERMISSIONS.notifications, 'expenses.view', 'expenses.create', 'expenses.approve', 'expenses.pay', 'customers.view', 'customers.payments', 'vendors.view', 'vendors.payments'] },
     ];
