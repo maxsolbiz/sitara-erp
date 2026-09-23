@@ -280,8 +280,12 @@ router.get('/verify-purchase', rbacMiddleware('pos.sales.view'), async (req: Req
 router.post('/process-return', rbacMiddleware('pos.returns.process'), async (req: Request, res: Response) => {
   try {
     const ctx = getTenantContext(); if (!ctx) { res.status(401).json({ status: 401 }); return; }
-    const { customerId, items, reason, refundMethod, notes, saleId } = req.body;
+    const { customerId, items, reason, refundMethod } = req.body;
     if (!customerId || !items || items.length === 0) { res.status(400).json({ status: 400, detail: 'Items required' }); return; }
+    for (const item of items) {
+      if (!item.saleItemId) { res.status(400).json({ status: 400, detail: 'saleItemId is required for every item' }); return; }
+      if (!Number.isInteger(item.quantity) || item.quantity <= 0) { res.status(400).json({ status: 400, detail: `Quantity must be a positive integer for sale item ${item.saleItemId}` }); return; }
+    }
 
     const method = (refundMethod || 'cash').toLowerCase();
     const cust = customerId ? await prisma.customer.findFirst({ where: { id: customerId, tenantId: ctx.tenantId }, select: { customerCode: true, currentBalance: true } }) : null;
@@ -290,84 +294,159 @@ router.post('/process-return', rbacMiddleware('pos.returns.process'), async (req
       if (cust.customerCode === 'WALKIN') { res.status(400).json({ status: 400, detail: 'Walk-in customers cannot receive credit refunds' }); return; }
     }
 
-    const firstItem = await prisma.saleItem.findFirst({
-      where: { tenantId: ctx.tenantId, id: BigInt(items[0].saleItemId) },
-      select: { saleId: true },
+    // Server-authoritative: resolve every saleItemId to its real sale item.
+    // productId, unitPrice and the owning sale are ALWAYS taken from this
+    // record, never from the request body (client values are untrusted;
+    // see AGENTS.md follow-ups 54-55).
+    let saleItemIds: bigint[];
+    try {
+      saleItemIds = items.map((i: any) => BigInt(i.saleItemId));
+    } catch {
+      res.status(400).json({ status: 400, detail: 'Invalid saleItemId' }); return;
+    }
+    const saleItems = await prisma.saleItem.findMany({
+      where: { tenantId: ctx.tenantId, id: { in: saleItemIds } },
+      select: { id: true, saleId: true, productId: true, quantity: true, unitPrice: true },
     });
-    // FK ownership: when the first item doesn't resolve to an in-tenant
-    // sale, the client-supplied saleId fallback must be verified — never
-    // trusted blindly (BigInt(saleId || 0) would attach to id 0/foreign).
-    let saleIdBigInt: bigint;
-    if (firstItem?.saleId) {
-      saleIdBigInt = firstItem.saleId;
-    } else if (saleId) {
-      const sale = await prisma.sale.findFirst({ where: { id: BigInt(saleId), tenantId: ctx.tenantId }, select: { id: true } });
-      if (!sale) { res.status(403).json({ status: 403, detail: 'Sale not found or not accessible' }); return; }
-      saleIdBigInt = sale.id;
-    } else {
-      res.status(400).json({ status: 400, detail: 'Sale item or sale required' }); return;
-    }
-    // FK ownership: every returned product must belong to this tenant.
+    const saleItemMap = new Map(saleItems.map((si) => [si.id.toString(), si]));
     for (const item of items) {
-      const product = await prisma.product.findFirst({ where: { id: BigInt(item.productId || 0), tenantId: ctx.tenantId }, select: { id: true } });
-      if (!product) { res.status(403).json({ status: 403, detail: `Product ${item.productId} not found or not accessible` }); return; }
+      if (!saleItemMap.has(String(item.saleItemId))) { res.status(400).json({ status: 400, detail: `Sale item ${item.saleItemId} not found or not accessible` }); return; }
     }
-    const returnNumber = `RET-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${String(Math.floor(Math.random() * 9999)).padStart(4, '0')}`;
-    const totalAmount = items.reduce((s: number, i: any) => s + (i.unitPrice || 0) * i.quantity, 0);
+
+    // The POS return picker can add items from more than one of a customer's
+    // sales into a single request (pos/page.tsx:784-795 iterates every sale
+    // in customerPurchases with no per-sale boundary; see AGENTS.md
+    // follow-up 58). Group items by their real (server-resolved) sale so
+    // each sale gets its own SalesReturn, journal and ledger entry, all
+    // inside one transaction. The remaining-quantity check below is scoped
+    // per saleItemId across the WHOLE request, not per group, so splitting
+    // one item's quantity across sale-groups cannot bypass it.
+    const groups = new Map<string, { saleId: bigint; items: any[] }>();
+    for (const item of items) {
+      const si = saleItemMap.get(String(item.saleItemId))!;
+      const key = si.saleId.toString();
+      if (!groups.has(key)) groups.set(key, { saleId: si.saleId, items: [] });
+      groups.get(key)!.items.push(item);
+    }
+
     const tenantId = ctx.tenantId;
     const warehouseId = await getDefaultWarehouse(tenantId);
+    // Running credit balance across sale groups in one request (cust is a
+    // read snapshot; mutate this local, not the Prisma payload).
+    let creditBalance = cust ? Number(cust.currentBalance) : 0;
 
-    const result = await prisma.$transaction(async (tx: any) => {
-      const ret = await tx.salesReturn.create({
-        data: { tenantId, saleId: saleIdBigInt, customerId: BigInt(customerId), returnNumber, returnDate: new Date(), totalAmount, reason: reason || 'Other', status: 'APPROVED', createdBy: requireAuthUserId(req) },
+    const groupResults = await prisma.$transaction(async (tx: any) => {
+      // Remaining-quantity check against a fresh read inside the transaction,
+      // scoped to ALL saleItemIds in this request regardless of which sale
+      // they belong to. This closes sequential double-submit (two requests,
+      // one after the other - the case observed in probe8/probe9) but NOT
+      // two genuinely concurrent transactions racing on the same sale item,
+      // which would need a row lock on SaleItem. Acceptable for a
+      // single-terminal POS flow issuing sequential requests; see AGENTS.md
+      // follow-up 59.
+      const priorReturned = await tx.salesReturnItem.groupBy({
+        by: ['saleItemId'],
+        where: { tenantId, saleItemId: { in: saleItemIds }, salesReturn: { status: { in: ['APPROVED', 'APPLIED'] } } },
+        _sum: { quantityReturned: true },
       });
+      const priorMap: Map<string, number> = new Map(priorReturned.map((p: any): [string, number] => [p.saleItemId.toString(), Number(p._sum.quantityReturned) || 0]));
+      const claimedInThisRequest = new Map<string, number>();
 
-      for (const item of items) {
-        const qty = Math.abs(item.quantity);
-        await tx.warehouseStock.upsert({
-          where: { tenantId_warehouseId_productId: { tenantId, warehouseId, productId: BigInt(item.productId || 0) } },
-          create: { tenantId, warehouseId, productId: BigInt(item.productId || 0), quantity: qty, averageCost: item.unitPrice || 0 },
-          update: { quantity: { increment: qty } },
+      const results: any[] = [];
+      for (const [, group] of groups) {
+        const resolvedItems = group.items.map((item: any) => {
+          const si = saleItemMap.get(String(item.saleItemId))!;
+          const key = String(item.saleItemId);
+          const already = (priorMap.get(key) || 0) + (claimedInThisRequest.get(key) || 0);
+          const remaining = si.quantity - already;
+          if (item.quantity > remaining) {
+            throw new Error(`REJECT:400:Quantity ${item.quantity} exceeds remaining returnable quantity ${remaining} for sale item ${item.saleItemId}`);
+          }
+          claimedInThisRequest.set(key, already + item.quantity);
+          const unitPrice = Number(si.unitPrice);
+          return { saleItemId: si.id, productId: si.productId, quantity: item.quantity, unitPrice, lineTotal: item.quantity * unitPrice };
         });
-        const batch = await tx.stockBatch.findFirst({ where: { tenantId, warehouseId, productId: BigInt(item.productId || 0) }, orderBy: { receivedAt: 'desc' } });
-        const restoreCost = batch ? Number(batch.unitCost) : (item.unitPrice || 0);
-        if (batch) await tx.stockBatch.update({ where: { id: batch.id }, data: { quantityRemaining: { increment: qty } } });
-        else await tx.stockBatch.create({ data: { tenantId, warehouseId, productId: BigInt(item.productId || 0), batchNumber: `RET-${Date.now()}`, quantityReceived: qty, quantityRemaining: qty, unitCost: restoreCost, receivedAt: new Date() } });
-        await tx.stockMovement.create({ data: { tenantId, warehouseId, productId: BigInt(item.productId || 0), movementType: 'SALE_RETURN', quantity: qty, unitCost: restoreCost, referenceType: 'sales_return', referenceId: ret.id, createdBy: requireAuthUserId(req) } });
-      }
 
-      if (method === 'credit' && cust) {
-        const before = Number(cust.currentBalance);
-        await tx.customer.update({ where: { id: customerId }, data: { currentBalance: { increment: totalAmount } } });
-        await tx.customerLedger.create({ data: { tenantId, customerId, type: 'REFUND', amount: totalAmount, balanceBefore: before, balanceAfter: before + totalAmount, referenceId: ret.id, referenceType: 'sales_return', notes: `Refund from return ${returnNumber}`, createdBy: requireAuthUserId(req) } });
-      }
+        const totalAmount = resolvedItems.reduce((s: number, i: any) => s + i.lineTotal, 0);
+        const returnNumber = `RET-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${String(Math.floor(Math.random() * 9999)).padStart(4, '0')}`;
 
-      const [returnsAcct, cashAcct, arAcct] = await Promise.all([
-        tx.chartOfAccount.findUnique({ where: { tenantId_accountCode: { tenantId, accountCode: ACCOUNT_CODES.SALES_RETURNS } } }),
-        tx.chartOfAccount.findUnique({ where: { tenantId_accountCode: { tenantId, accountCode: ACCOUNT_CODES.CASH_ON_HAND } } }),
-        tx.chartOfAccount.findUnique({ where: { tenantId_accountCode: { tenantId, accountCode: ACCOUNT_CODES.ACCOUNTS_RECEIVABLE } } }),
-      ]);
-      if (returnsAcct && totalAmount > 0) {
-        const lines: any[] = [{ tenantId, accountId: returnsAcct.id, debitAmount: totalAmount, creditAmount: 0, description: `Return ${returnNumber}` }];
-        if (method === 'credit' && arAcct) lines.push({ tenantId, accountId: arAcct.id, debitAmount: 0, creditAmount: totalAmount, description: 'Credit refund' });
-        else if (cashAcct) lines.push({ tenantId, accountId: cashAcct.id, debitAmount: 0, creditAmount: totalAmount, description: 'Cash refund' });
-        const td = lines.reduce((s: number, l: any) => s + Number(l.debitAmount), 0);
-        const tc = lines.reduce((s: number, l: any) => s + Number(l.creditAmount), 0);
-        if (Math.abs(td - tc) > 0.01) throw new Error(`Journal not balanced: Dr ${td} != Cr ${tc}`);
-        await tx.journalEntry.create({ data: { tenantId, entryNumber: `RET-${returnNumber.replace('RET-', '')}`, entryDate: new Date(), description: `Return ${returnNumber}`, totalDebit: td, totalCredit: tc, createdBy: requireAuthUserId(req), lines: { create: lines } } });
+        const ret = await tx.salesReturn.create({
+          data: { tenantId, saleId: group.saleId, customerId: BigInt(customerId), returnNumber, returnDate: new Date(), totalAmount, reason: reason || 'Other', status: 'APPROVED', createdBy: requireAuthUserId(req) },
+        });
+
+        for (const item of resolvedItems) {
+          await tx.salesReturnItem.create({
+            data: { tenantId, salesReturnId: ret.id, saleItemId: item.saleItemId, productId: item.productId, quantityReturned: item.quantity, unitPrice: item.unitPrice, lineTotal: item.lineTotal, warehouseId },
+          });
+          await tx.warehouseStock.upsert({
+            where: { tenantId_warehouseId_productId: { tenantId, warehouseId, productId: item.productId } },
+            create: { tenantId, warehouseId, productId: item.productId, quantity: item.quantity, averageCost: item.unitPrice },
+            update: { quantity: { increment: item.quantity } },
+          });
+          const batch = await tx.stockBatch.findFirst({ where: { tenantId, warehouseId, productId: item.productId }, orderBy: { receivedAt: 'desc' } });
+          const restoreCost = batch ? Number(batch.unitCost) : item.unitPrice;
+          if (batch) await tx.stockBatch.update({ where: { id: batch.id }, data: { quantityRemaining: { increment: item.quantity } } });
+          else await tx.stockBatch.create({ data: { tenantId, warehouseId, productId: item.productId, batchNumber: `RET-${Date.now()}`, quantityReceived: item.quantity, quantityRemaining: item.quantity, unitCost: restoreCost, receivedAt: new Date() } });
+          await tx.stockMovement.create({ data: { tenantId, warehouseId, productId: item.productId, movementType: 'SALE_RETURN', quantity: item.quantity, unitCost: restoreCost, referenceType: 'sales_return', referenceId: ret.id, createdBy: requireAuthUserId(req) } });
+        }
+
+        if (method === 'credit' && cust) {
+          const before = creditBalance;
+          await tx.customer.update({ where: { id: customerId }, data: { currentBalance: { increment: totalAmount } } });
+          await tx.customerLedger.create({ data: { tenantId, customerId, type: 'REFUND', amount: totalAmount, balanceBefore: before, balanceAfter: before + totalAmount, referenceId: ret.id, referenceType: 'sales_return', notes: `Refund from return ${returnNumber}`, createdBy: requireAuthUserId(req) } });
+          creditBalance = before + totalAmount;
+        }
+
+        const [returnsAcct, cashAcct, arAcct] = await Promise.all([
+          tx.chartOfAccount.findUnique({ where: { tenantId_accountCode: { tenantId, accountCode: ACCOUNT_CODES.SALES_RETURNS } } }),
+          tx.chartOfAccount.findUnique({ where: { tenantId_accountCode: { tenantId, accountCode: ACCOUNT_CODES.CASH_ON_HAND } } }),
+          tx.chartOfAccount.findUnique({ where: { tenantId_accountCode: { tenantId, accountCode: ACCOUNT_CODES.ACCOUNTS_RECEIVABLE } } }),
+        ]);
+        if (returnsAcct && totalAmount > 0) {
+          const lines: any[] = [{ tenantId, accountId: returnsAcct.id, debitAmount: totalAmount, creditAmount: 0, description: `Return ${returnNumber}` }];
+          if (method === 'credit' && arAcct) lines.push({ tenantId, accountId: arAcct.id, debitAmount: 0, creditAmount: totalAmount, description: 'Credit refund' });
+          else if (cashAcct) lines.push({ tenantId, accountId: cashAcct.id, debitAmount: 0, creditAmount: totalAmount, description: 'Cash refund' });
+          const td = lines.reduce((s: number, l: any) => s + Number(l.debitAmount), 0);
+          const tc = lines.reduce((s: number, l: any) => s + Number(l.creditAmount), 0);
+          if (Math.abs(td - tc) > 0.01) throw new Error(`Journal not balanced: Dr ${td} != Cr ${tc}`);
+          await tx.journalEntry.create({ data: { tenantId, entryNumber: `RET-${returnNumber.replace('RET-', '')}`, entryDate: new Date(), description: `Return ${returnNumber}`, totalDebit: td, totalCredit: tc, createdBy: requireAuthUserId(req), lines: { create: lines } } });
+        }
+
+        results.push({ saleId: group.saleId, returnId: ret.id, returnNumber, total: totalAmount, status: ret.status, resolvedItems });
       }
-      return ret;
+      return results;
     });
 
-    logger.info('Return processed', { returnNumber, customerId, totalAmount, method, tenantId: tenantId.toString() });
-    res.status(201).json({ data: { returnId: result.id.toString(), returnNumber: result.returnNumber, total: totalAmount, status: result.status } });
-    // Log return processing result (non-blocking)
-    try {
-      await prisma.returnProcessingLog.create({
-        data: { tenantId: ctx.tenantId, saleId: saleIdBigInt, returnNumber, status: 'SUCCESS', errorMessage: null, cartData: items },
-      });
-    } catch {}
-  } catch (error: any) { logger.error('Return failed', { error: error.message }); res.status(500).json({ status: 500, detail: error.message }); }
+    const grandTotal = groupResults.reduce((s: number, r: any) => s + r.total, 0);
+    logger.info('Return processed', { returnCount: groupResults.length, customerId, grandTotal, method, tenantId: tenantId.toString() });
+    res.status(201).json({
+      data: {
+        returnNumber: groupResults[0].returnNumber,
+        total: grandTotal,
+        status: 'APPROVED',
+        returns: groupResults.map((r: any) => ({ returnId: r.returnId.toString(), returnNumber: r.returnNumber, total: r.total, status: r.status })),
+      },
+    });
+    // Log return processing result (non-blocking), one row per sale group.
+    // cartData stores the server-resolved lines, not the client-submitted
+    // ones, so the log is a true record of what actually happened
+    // (AGENTS.md follow-up 59).
+    for (const r of groupResults) {
+      try {
+        await prisma.returnProcessingLog.create({
+          data: {
+            tenantId: ctx.tenantId, saleId: r.saleId, returnNumber: r.returnNumber, status: 'SUCCESS', errorMessage: null,
+            cartData: r.resolvedItems.map((i: any) => ({ saleItemId: i.saleItemId.toString(), productId: i.productId.toString(), quantity: i.quantity, unitPrice: i.unitPrice, lineTotal: i.lineTotal })),
+          },
+        });
+      } catch {}
+    }
+  } catch (error: any) {
+    const m = /^REJECT:(\d+):(.*)$/.exec(error.message || '');
+    if (m) { res.status(Number(m[1])).json({ status: Number(m[1]), detail: m[2] }); return; }
+    logger.error('Return failed', { error: error.message });
+    res.status(500).json({ status: 500, detail: error.message });
+  }
 });
 
 // ---- MANAGER OVERRIDE ----
