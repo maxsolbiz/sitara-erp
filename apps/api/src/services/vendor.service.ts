@@ -68,7 +68,22 @@ export class VendorService {
   async update(id: bigint, data: any) {
     const ctx = getTenantContext();
     if (!ctx) throw new Error('No tenant');
-    await prisma.vendor.updateMany({ where: { id, tenantId: ctx.tenantId }, data });
+    
+    // Whitelist allowed fields for vendor update
+    const allowedFields = ['companyName', 'contactPerson', 'email', 'phone', 'address', 'taxNumber', 'paymentTerms', 'creditLimit'];
+    const updateData: any = {};
+    for (const field of allowedFields) {
+      if (data[field] !== undefined) {
+        updateData[field] = data[field];
+      }
+    }
+    
+    // Check if there's anything to update
+    if (Object.keys(updateData).length === 0) {
+      return { id: id.toString() };
+    }
+    
+    await prisma.vendor.updateMany({ where: { id, tenantId: ctx.tenantId }, data: updateData });
     return { id: id.toString() };
   }
 

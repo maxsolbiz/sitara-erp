@@ -68,9 +68,14 @@ router.post('/', rbacMiddleware('vendors.create'), async (req: Request, res: Res
 });
 
 router.put('/:id', rbacMiddleware('vendors.update'), async (req: Request, res: Response) => {
-    try { await vendorService.update(BigInt(req.params.id), req.body); res.json({ data: { message: 'Updated' } }); }
-    catch (e: any) { logger.error('Vendor update failed', { error: e.message }); res.status(500).json({ status: 500, detail: e.message }); }
-});
+    try {
+      // Reject dangerous fields that must not be mass-assigned via this endpoint
+      if (req.body.currentBalance !== undefined) { res.status(400).json({ status: 400, detail: 'currentBalance cannot be set via PUT; use vendor payments endpoints' }); return; }
+      if (req.body.isActive !== undefined) { res.status(400).json({ status: 400, detail: 'isActive cannot be set via this endpoint; no dedicated toggle exists yet' }); return; }
+      await vendorService.update(BigInt(req.params.id), req.body);
+      res.json({ data: { message: 'Updated' } });
+    } catch (e: any) { logger.error('Vendor update failed', { error: e.message }); res.status(500).json({ status: 500, detail: e.message }); }
+  });
 
 router.delete('/:id', rbacMiddleware('vendors.delete'), async (req: Request, res: Response) => {
     try { await vendorService.delete(BigInt(req.params.id)); res.json({ data: { message: 'Deleted' } }); }
