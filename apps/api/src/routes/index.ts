@@ -2,6 +2,7 @@ import { Express, Request, Response } from 'express';
 import { config } from '../config';
 import { authMiddleware } from '../middleware/auth';
 import { tenantMiddleware } from '../middleware/tenant';
+import { userRateLimitMiddleware } from '../middleware/rateLimit';
 
 import authRoutes from './auth.routes';
 import dashboardRoutes from './dashboard.routes';
@@ -33,37 +34,38 @@ import backupRoutes from './backup.routes';
 
 export function registerRoutes(app: Express): void {
   const api = `/${config.apiPrefix}`;
+  const userRateLimit = userRateLimitMiddleware();
 
   // Public routes (no auth)
   app.get(`${api}/public/receipts/:id`, publicReceiptHandler);
 
   app.use(`${api}/auth`, authRoutes);
-  app.use(`${api}/dashboard`, authMiddleware, tenantMiddleware, dashboardRoutes);
-  app.use(`${api}/tenants`, authMiddleware, tenantRoutes);
-  app.use(`${api}/products`, authMiddleware, tenantMiddleware, productRoutes);
-  app.use(`${api}/product-categories`, authMiddleware, tenantMiddleware, productCategoriesRoutes);
-  app.use(`${api}/pos`, authMiddleware, tenantMiddleware, posRoutes);
-  app.use(`${api}/sales/return-logs`, authMiddleware, tenantMiddleware, returnLogsRoutes);
-  app.use(`${api}/sales`, authMiddleware, tenantMiddleware, saleRoutes);
-  app.use(`${api}/sales-returns`, authMiddleware, tenantMiddleware, salesReturnsRoutes);
-  app.use(`${api}/customers`, authMiddleware, tenantMiddleware, customerRoutes);
-  app.use(`${api}/vendors`, authMiddleware, tenantMiddleware, vendorRoutes);
-  app.use(`${api}/purchases`, authMiddleware, tenantMiddleware, purchaseRoutes);
-  app.use(`${api}/accounting`, authMiddleware, tenantMiddleware, accountingRoutes);
-  app.use(`${api}/inventory`, authMiddleware, tenantMiddleware, inventoryRoutes);
-  app.use(`${api}/reports`, authMiddleware, tenantMiddleware, reportRoutes);
-  app.use(`${api}/expenses`, authMiddleware, tenantMiddleware, expenseRoutes);
-  app.use(`${api}/settings`, authMiddleware, tenantMiddleware, settingsRoutes);
-  app.use(`${api}/pricing-tiers`, authMiddleware, tenantMiddleware, pricingTierRoutes);
-  app.use(`${api}/users`, authMiddleware, tenantMiddleware, userRoutes);
-  app.use(`${api}/rbac`, authMiddleware, tenantMiddleware, rbacRoutes);
-  app.use(`${api}/financial-years`, authMiddleware, tenantMiddleware, financialYearRoutes);
-  app.use(`${api}/notifications`, authMiddleware, tenantMiddleware, notificationRoutes);
-  app.use(`${api}/loans`, authMiddleware, tenantMiddleware, loanRoutes);
-  app.use(`${api}/search`, authMiddleware, tenantMiddleware, searchRoutes);
-  app.use(`${api}/activity`, authMiddleware, tenantMiddleware, activityRoutes);
-  app.use(`${api}/ai`, authMiddleware, tenantMiddleware, aiRoutes);
-  app.use(`${api}/backups`, authMiddleware, tenantMiddleware, backupRoutes);
+  app.use(`${api}/dashboard`, authMiddleware, tenantMiddleware, userRateLimit, dashboardRoutes);
+  app.use(`${api}/tenants`, authMiddleware, userRateLimit, tenantRoutes);
+  app.use(`${api}/products`, authMiddleware, tenantMiddleware, userRateLimit, productRoutes);
+  app.use(`${api}/product-categories`, authMiddleware, tenantMiddleware, userRateLimit, productCategoriesRoutes);
+  app.use(`${api}/pos`, authMiddleware, tenantMiddleware, userRateLimit, posRoutes);
+  app.use(`${api}/sales/return-logs`, authMiddleware, tenantMiddleware, userRateLimit, returnLogsRoutes);
+  app.use(`${api}/sales`, authMiddleware, tenantMiddleware, userRateLimit, saleRoutes);
+  app.use(`${api}/sales-returns`, authMiddleware, tenantMiddleware, userRateLimit, salesReturnsRoutes);
+  app.use(`${api}/customers`, authMiddleware, tenantMiddleware, userRateLimit, customerRoutes);
+  app.use(`${api}/vendors`, authMiddleware, tenantMiddleware, userRateLimit, vendorRoutes);
+  app.use(`${api}/purchases`, authMiddleware, tenantMiddleware, userRateLimit, purchaseRoutes);
+  app.use(`${api}/accounting`, authMiddleware, tenantMiddleware, userRateLimit, accountingRoutes);
+  app.use(`${api}/inventory`, authMiddleware, tenantMiddleware, userRateLimit, inventoryRoutes);
+  app.use(`${api}/reports`, authMiddleware, tenantMiddleware, userRateLimit, reportRoutes);
+  app.use(`${api}/expenses`, authMiddleware, tenantMiddleware, userRateLimit, expenseRoutes);
+  app.use(`${api}/settings`, authMiddleware, tenantMiddleware, userRateLimit, settingsRoutes);
+  app.use(`${api}/pricing-tiers`, authMiddleware, tenantMiddleware, userRateLimit, pricingTierRoutes);
+  app.use(`${api}/users`, authMiddleware, tenantMiddleware, userRateLimit, userRoutes);
+  app.use(`${api}/rbac`, authMiddleware, tenantMiddleware, userRateLimit, rbacRoutes);
+  app.use(`${api}/financial-years`, authMiddleware, tenantMiddleware, userRateLimit, financialYearRoutes);
+  app.use(`${api}/notifications`, authMiddleware, tenantMiddleware, userRateLimit, notificationRoutes);
+  app.use(`${api}/loans`, authMiddleware, tenantMiddleware, userRateLimit, loanRoutes);
+  app.use(`${api}/search`, authMiddleware, tenantMiddleware, userRateLimit, searchRoutes);
+  app.use(`${api}/activity`, authMiddleware, tenantMiddleware, userRateLimit, activityRoutes);
+  app.use(`${api}/ai`, authMiddleware, tenantMiddleware, userRateLimit, aiRoutes);
+  app.use(`${api}/backups`, authMiddleware, tenantMiddleware, userRateLimit, backupRoutes);
 
   app.get(`/${config.apiPrefix}`, (_req: Request, res: Response) => {
     res.json({

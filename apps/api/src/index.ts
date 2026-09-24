@@ -27,6 +27,7 @@ import { tenantMiddleware } from './middleware/tenant';
 import { registerRoutes } from './routes';
 import { runWithTenantContext } from './lib/prisma';
 import { TENANT_SLUG_PATTERN } from './constants/tenant';
+import { CLOUDFLARE_IPV4, CLOUDFLARE_IPV6 } from './config/cloudflare-ips';
 import { initGeoIP } from './services/geoip.service';
 import { startCurrencySync } from './services/currency.service';
 
@@ -35,11 +36,12 @@ const app = express();
 // Error tracking is initialized in ./instrument (first import above),
 // dormant unless SENTRY_DSN is set.
 
-// Trust ONLY the loopback reverse proxy (Apache on this box) so req.ip
-// reflects the X-Forwarded-For client instead of 127.0.0.1. Without this,
-// every visitor shares one address and the per-IP rate limiter throttles
-// the whole world as a single user. 'loopback' never trusts external hops.
-app.set('trust proxy', 'loopback');
+// Trust the loopback reverse proxy (Apache on this box) plus the Cloudflare
+// edge ranges so req.ip resolves to the real client: Cloudflare appends the
+// real client to X-Forwarded-For and Apache appends the edge, and Express
+// walks the chain right-to-left skipping trusted hops. A direct-to-origin
+// client is an untrusted peer, so its spoofed headers are ignored.
+app.set('trust proxy', ['loopback', ...CLOUDFLARE_IPV4, ...CLOUDFLARE_IPV6]);
 
 // Per-request tenant isolation boundary. Must be the FIRST middleware so the
 // AsyncLocalStorage store is established before anything downstream runs —
