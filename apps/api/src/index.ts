@@ -28,6 +28,7 @@ import { registerRoutes } from './routes';
 import { runWithTenantContext } from './lib/prisma';
 import { TENANT_SLUG_PATTERN } from './constants/tenant';
 import { CLOUDFLARE_IPV4, CLOUDFLARE_IPV6 } from './config/cloudflare-ips';
+import { SERVER_OWN_ADDRESSES } from './config/self-addresses';
 import { initGeoIP } from './services/geoip.service';
 import { startCurrencySync } from './services/currency.service';
 
@@ -40,8 +41,10 @@ const app = express();
 // edge ranges so req.ip resolves to the real client: Cloudflare appends the
 // real client to X-Forwarded-For and Apache appends the edge, and Express
 // walks the chain right-to-left skipping trusted hops. A direct-to-origin
-// client is an untrusted peer, so its spoofed headers are ignored.
-app.set('trust proxy', ['loopback', ...CLOUDFLARE_IPV4, ...CLOUDFLARE_IPV6]);
+// client is an untrusted peer, so its spoofed headers are ignored. The
+// server's own public addresses are trusted too, so app-host traffic that
+// hairpins out through Cloudflare resolves past them to the real client.
+app.set('trust proxy', ['loopback', ...CLOUDFLARE_IPV4, ...CLOUDFLARE_IPV6, ...SERVER_OWN_ADDRESSES]);
 
 // Per-request tenant isolation boundary. Must be the FIRST middleware so the
 // AsyncLocalStorage store is established before anything downstream runs —
